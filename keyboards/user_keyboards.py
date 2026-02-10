@@ -1,7 +1,7 @@
 """Клавиатуры для пользователей"""
 
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -21,6 +21,7 @@ from config import (
     WORK_HOURS_START,
 )
 from database.queries import Database
+from database.repositories.service_repository import ServiceRepository
 from utils.helpers import now_local
 
 # Главное меню
@@ -168,19 +169,35 @@ async def create_time_slots(
             [InlineKeyboardButton(text="🔙 К календарю", callback_data="back_calendar")]
         ])
         return (
-            "❌ ОШИБКА\n\n"
-            "Эта дата уже прошла.\n"
+            "❌ ОШИБКА\\n\\n"
+            "Эта дата уже прошла.\\n"
             "Выберите дату из календаря.",
             error_kb
         )
+
+    # ✅ КРИТИЧНО: Получаем service_id из состояния
+    data = await state.get_data() if state else {}
+    service_id = data.get("service_id")
+    is_rescheduling = data.get("reschedule_booking_id") is not None
+
+    # Получаем услугу для определения длительности
+    service = None
+    duration_minutes = 60  # Default fallback
+    
+    if service_id:
+        service = await ServiceRepository.get_service_by_id(service_id)
+        if service:
+            duration_minutes = service.duration_minutes
 
     # Оптимизация: получаем все занятые слоты одним запросом
     occupied_slots = await Database.get_occupied_slots_for_day(date_str)
 
     free_count = 0
-    total_slots = WORK_HOURS_END - WORK_HOURS_START
+    # ✅ ИСПРАВЛЕНО: Учитываем длительность услуги
+    duration_hours = (duration_minutes + 59) // 60  # Округление вверх
+    total_possible_slots = max(0, WORK_HOURS_END - WORK_HOURS_START - duration_hours + 1)
 
-    for hour in range(WORK_HOURS_START, WORK_HOURS_END):
+    for hour in range(WORK_HOURS_START, WORK_HOURS_END - duration_hours + 1):
         time_str = f"{hour:02d}:00"
         
         # ИСПРАВЛЕНО: Используем TIMEZONE.localize() вместо .replace()
@@ -193,7 +210,18 @@ async def create_time_slots(
         if is_today and slot_datetime <= now:
             continue
 
-        is_free = time_str not in occupied_slots
+        # ✅ КРИТИЧЕСКИ ВАЖНО: Проверяем ВСЕ нужные слоты
+        slots_needed = []
+        for i in range(duration_hours):
+            needed_hour = hour + i
+            if needed_hour < WORK_HOURS_END:
+                slots_needed.append(f"{needed_hour:02d}:00")
+            else:
+                # Слот выходит за рабочие часы
+                break
+        
+        # Все нужные слоты должны быть свободны
+        is_free = all(slot not in occupied_slots for slot in slots_needed) and len(slots_needed) == duration_hours
 
         if is_free:
             free_count += 1
@@ -202,10 +230,6 @@ async def create_time_slots(
 
         if not keyboard or len(keyboard[-1]) == 3:
             keyboard.append([])
-
-        # Проверяем контекст переноса
-        data = await state.get_data() if state else {}
-        is_rescheduling = data.get("reschedule_booking_id") is not None
 
         if is_free:
             callback_data = (
@@ -231,23 +255,33 @@ async def create_time_slots(
         ]
         reason = "прошли или заняты" if is_today else "заняты"
         text = (
-            f"❌ ВСЕ СЛОТЫ {reason.upper()}\n\n"
-            f"📅 {date_obj.strftime('%d.%m.%Y')} ({DAY_NAMES[date_obj.weekday()]})\n\n"
+            f"❌ ВСЕ СЛОТЫ {reason.upper()}\\n\\n"
+            f"📅 {date_obj.strftime('%d.%m.%Y')} ({DAY_NAMES[date_obj.weekday()]})\\n\\n"
             "Попробуйте выбрать другую дату."
         )
     else:
         # Формируем текст
         day_name = DAY_NAMES[date_obj.weekday()]
+        
+        # ✅ НОВОЕ: Показываем информацию об услуге
+        service_info = ""
+        if service:
+            service_info = (
+                f"📝 Услуга: {service.name}\\n"
+                f"⏱ Длительность: {service.duration_minutes} мин\\n\\n"
+            )
+        
         text = (
-            "📍 ШАГ 2 из 3: Выберите время\n\n"
-            f"📅 {date_obj.strftime('%d.%m.%Y')} ({day_name})\n"
-            f"🟢 Свободно: {free_count}/{total_slots} слотов\n"
+            f"{service_info}"
+            "📍 ШАГ 3 из 4: Выберите время\\n\\n"
+            f"📅 {date_obj.strftime('%d.%m.%Y')} ({day_name})\\n"
+            f"🟢 Свободно: {free_count}/{total_possible_slots} слотов\\n"
         )
 
         if free_count <= 3:
-            text += "⚠️ Мало мест — записывайтесь скорее!\n"
+            text += "⚠️ Мало мест — записывайтесь скорее!\\n"
 
-        text += "\n✅ = свободно | ❌ = занято"
+        text += "\\n✅ = свободно | ❌ = занято"
 
     keyboard.append(
         [InlineKeyboardButton(text="🔙 К календарю", callback_data="back_calendar")]
