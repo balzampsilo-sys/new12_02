@@ -8,7 +8,15 @@ from typing import Optional, Tuple
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import DATABASE_PATH, MAX_BOOKINGS_PER_USER, TIMEZONE
+from config import (
+    DATABASE_PATH,
+    FEEDBACK_HOURS_AFTER,
+    MAX_BOOKINGS_PER_USER,
+    REMINDER_HOURS_BEFORE_1H,
+    REMINDER_HOURS_BEFORE_24H,
+    REMINDER_HOURS_BEFORE_2H,
+    TIMEZONE,
+)
 from database.queries import Database
 from utils.helpers import now_local
 
@@ -320,9 +328,9 @@ class BookingService:
             now = now_local()
             time_until_booking = booking_datetime - now
 
-            # Напоминание
-            if time_until_booking > timedelta(hours=24):
-                reminder_time = booking_datetime - timedelta(hours=24)
+            # Напоминание (используем константы)
+            if time_until_booking > timedelta(hours=REMINDER_HOURS_BEFORE_24H):
+                reminder_time = booking_datetime - timedelta(hours=REMINDER_HOURS_BEFORE_24H)
                 self.scheduler.add_job(
                     self._send_reminder,
                     "date",
@@ -331,8 +339,8 @@ class BookingService:
                     id=f"reminder_{booking_id}",
                     replace_existing=True,
                 )
-            elif time_until_booking > timedelta(hours=2):
-                reminder_time = booking_datetime - timedelta(hours=2)
+            elif time_until_booking > timedelta(hours=REMINDER_HOURS_BEFORE_2H):
+                reminder_time = booking_datetime - timedelta(hours=REMINDER_HOURS_BEFORE_2H)
                 self.scheduler.add_job(
                     self._send_reminder,
                     "date",
@@ -341,8 +349,8 @@ class BookingService:
                     id=f"reminder_{booking_id}",
                     replace_existing=True,
                 )
-            elif time_until_booking > timedelta(hours=1):
-                reminder_time = booking_datetime - timedelta(hours=1)
+            elif time_until_booking > timedelta(hours=REMINDER_HOURS_BEFORE_1H):
+                reminder_time = booking_datetime - timedelta(hours=REMINDER_HOURS_BEFORE_1H)
                 self.scheduler.add_job(
                     self._send_reminder,
                     "date",
@@ -352,8 +360,8 @@ class BookingService:
                     replace_existing=True,
                 )
 
-            # Запрос обратной связи через 2 часа после встречи
-            feedback_time = booking_datetime + timedelta(hours=2)
+            # Запрос обратной связи (используем константы)
+            feedback_time = booking_datetime + timedelta(hours=FEEDBACK_HOURS_AFTER)
             self.scheduler.add_job(
                 self._send_feedback_request,
                 "date",
@@ -406,59 +414,79 @@ class BookingService:
             logging.error(f"Error cancelling booking: {e}", exc_info=True)
             return False, 0
 
-    async def restore_reminders(self) -> None:
-        """Восстановить напоминания после рестарта"""
+    async def restore_reminders(self, batch_size: int = 50) -> None:
+        """Восстановить напоминания после рестарта с батчингом
+        
+        Args:
+            batch_size: Размер батча для обработки (по умолчанию 50)
+        """
         try:
             now = now_local()
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 async with db.execute(
-                    "SELECT id, date, time, user_id FROM bookings"
+                    "SELECT id, date, time, user_id FROM bookings ORDER BY date, time"
                 ) as cursor:
                     all_bookings = await cursor.fetchall()
 
+            total_bookings = len(all_bookings)
             restored_count = 0
-            for booking_id, date_str, time_str, user_id in all_bookings:
-                booking_datetime = datetime.strptime(
-                    f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
+            processed_count = 0
+            
+            logging.info(f"Starting reminder restoration for {total_bookings} bookings...")
+            
+            # Обработка батчами
+            for i in range(0, total_bookings, batch_size):
+                batch = all_bookings[i:i + batch_size]
+                
+                for booking_id, date_str, time_str, user_id in batch:
+                    try:
+                        booking_datetime = datetime.strptime(
+                            f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
+                        )
+                        booking_datetime = TIMEZONE.localize(booking_datetime)
+
+                        # Восстановить напоминание (используем константы)
+                        reminder_time = booking_datetime - timedelta(hours=REMINDER_HOURS_BEFORE_24H)
+                        if reminder_time > now:
+                            self.scheduler.add_job(
+                                self._send_reminder,
+                                "date",
+                                run_date=reminder_time,
+                                args=[user_id, date_str, time_str],
+                                id=f"reminder_{booking_id}",
+                                replace_existing=True,
+                            )
+                            restored_count += 1
+
+                        # Восстановить запрос обратной связи
+                        feedback_time = booking_datetime + timedelta(hours=FEEDBACK_HOURS_AFTER)
+                        if feedback_time > now:
+                            self.scheduler.add_job(
+                                self._send_feedback_request,
+                                "date",
+                                run_date=feedback_time,
+                                args=[user_id, booking_id, date_str, time_str],
+                                id=f"feedback_{booking_id}",
+                                replace_existing=True,
+                            )
+                            
+                    except Exception as e:
+                        logging.warning(
+                            f"Failed to restore reminders for booking {booking_id}: {e}"
+                        )
+                    finally:
+                        processed_count += 1
+                
+                # Логируем прогресс после каждого батча
+                logging.info(
+                    f"Reminder restoration progress: {processed_count}/{total_bookings} processed, "
+                    f"{restored_count} restored"
                 )
-                booking_datetime = TIMEZONE.localize(booking_datetime)
 
-                # Восстановить напоминание
-                reminder_time = booking_datetime - timedelta(hours=24)
-                if reminder_time > now:
-                    try:
-                        self.scheduler.add_job(
-                            self._send_reminder,
-                            "date",
-                            run_date=reminder_time,
-                            args=[user_id, date_str, time_str],
-                            id=f"reminder_{booking_id}",
-                            replace_existing=True,
-                        )
-                        restored_count += 1
-                    except Exception as e:
-                        logging.warning(
-                            f"Failed to restore reminder for booking {booking_id}: {e}"
-                        )
-
-                # Восстановить запрос обратной связи
-                feedback_time = booking_datetime + timedelta(hours=2)
-                if feedback_time > now:
-                    try:
-                        self.scheduler.add_job(
-                            self._send_feedback_request,
-                            "date",
-                            run_date=feedback_time,
-                            args=[user_id, booking_id, date_str, time_str],
-                            id=f"feedback_{booking_id}",
-                            replace_existing=True,
-                        )
-                    except Exception as e:
-                        logging.warning(
-                            f"Failed to restore feedback request for booking {booking_id}: {e}"
-                        )
-
-            logging.info(f"Restored {restored_count} reminders")
+            logging.info(
+                f"Reminder restoration completed: {restored_count} reminders restored from "
+                f"{total_bookings} bookings"
+            )
         except Exception as e:
             logging.error(f"Error restoring reminders: {e}", exc_info=True)
 
