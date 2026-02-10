@@ -7,10 +7,13 @@ ADMIN_MENU = ReplyKeyboardMarkup(
         [KeyboardButton(text="📊 Dashboard"), KeyboardButton(text="💡 Рекомендации")],
         [KeyboardButton(text="📅 Расписание"), KeyboardButton(text="👥 Клиенты")],
         [
+            KeyboardButton(text="⚙️ Управление услугами"),
             KeyboardButton(text="⚡ Массовые операции"),
-            KeyboardButton(text="📊 Экспорт данных"),
         ],
-        [KeyboardButton(text="🔙 Выход из админки")],
+        [
+            KeyboardButton(text="📊 Экспорт данных"),
+            KeyboardButton(text="🔙 Выход из админки"),
+        ],
     ],
     resize_keyboard=True,
 )
