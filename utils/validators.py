@@ -4,6 +4,8 @@ import logging
 from datetime import datetime
 from typing import Optional, Tuple
 
+from utils.helpers import now_local
+
 
 def parse_callback_data(
     callback_data: str, 
@@ -113,6 +115,55 @@ def validate_booking_data(date_str: str, time_str: str) -> Tuple[bool, str]:
         return False, "Неверный формат времени"
     
     return True, ""
+
+
+def validate_date_not_past(date_str: str) -> Tuple[bool, str]:
+    """Проверка что дата не в прошлом
+    
+    Args:
+        date_str: Дата в формате YYYY-MM-DD
+        
+    Returns:
+        Tuple (is_valid, error_message)
+        
+    Example:
+        >>> validate_date_not_past("2026-12-31")
+        (True, "")
+        
+        >>> validate_date_not_past("2020-01-01")
+        (False, "Нельзя выбрать прошедшую дату")
+    """
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        today = now_local().date()
+        
+        if date_obj.date() < today:
+            return False, "Нельзя выбрать прошедшую дату"
+        
+        return True, ""
+    except ValueError:
+        return False, "Неверный формат даты"
+
+
+def validate_work_hours(hour: int, start_hour: int, end_hour: int) -> bool:
+    """Проверка что время в рабочих часах
+    
+    Args:
+        hour: Час для проверки
+        start_hour: Начало рабочего дня
+        end_hour: Конец рабочего дня
+        
+    Returns:
+        True если час в рабочих часах
+        
+    Example:
+        >>> validate_work_hours(10, 9, 19)
+        True
+        
+        >>> validate_work_hours(20, 9, 19)
+        False
+    """
+    return start_hour <= hour < end_hour
 
 
 def validate_rating(rating: int) -> bool:
