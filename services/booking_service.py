@@ -3,7 +3,7 @@
 import logging
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Tuple
+from typing import Optional, Tuple
 
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -20,37 +20,77 @@ class BookingService:
         self.scheduler = scheduler
         self.bot = bot
 
+    async def _get_default_service(self) -> Optional[Tuple[int, int]]:
+        """Получить дефолтную активную услугу
+        
+        Returns:
+            Tuple[service_id, duration] или None если услуг нет
+        """
+        from database.repositories.service_repository import ServiceRepository
+        
+        services = await ServiceRepository.get_all_services(active_only=True)
+        
+        if not services:
+            logging.error("No active services available for booking")
+            return None
+        
+        # Берем первую активную услугу по display_order
+        default_service = services[0]
+        logging.info(
+            f"Using default service: {default_service.name} "
+            f"(id={default_service.id}, duration={default_service.duration_minutes}min)"
+        )
+        
+        return (default_service.id, default_service.duration_minutes)
+
     async def create_booking(
         self,
         date_str: str,
         time_str: str,
         user_id: int,
         username: str,
-        service_id: int = None  # ✅ Опциональный для обратной совместимости
+        service_id: Optional[int] = None
     ) -> Tuple[bool, str]:
         """Создание записи с атомарной проверкой и поддержкой услуг
 
+        Args:
+            date_str: Дата в формате YYYY-MM-DD
+            time_str: Время в формате HH:MM
+            user_id: ID пользователя
+            username: Имя пользователя
+            service_id: ID услуги (опционально, для обратной совместимости)
+
         Returns:
             Tuple[bool, str]: (success, error_code)
+            error_code может быть:
+                - 'success' - успешно
+                - 'no_services' - нет доступных услуг
+                - 'service_not_available' - выбранная услуга недоступна
+                - 'limit_exceeded' - превышен лимит записей
+                - 'slot_taken' - слот занят
+                - 'unknown_error' - неизвестная ошибка
         """
         # Если service_id не передан, используем дефолтную услугу
         if service_id is None:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                async with db.execute(
-                    "SELECT id, duration_minutes FROM services WHERE is_active=1 ORDER BY display_order LIMIT 1"
-                ) as cursor:
-                    result = await cursor.fetchone()
-                    if result:
-                        service_id, duration = result
-                    else:
-                        # Fallback на 60 минут
-                        duration = 60
-                        service_id = None
+            default = await self._get_default_service()
+            if default is None:
+                logging.error("Cannot create booking: no active services")
+                return False, "no_services"
+            
+            service_id, duration = default
         else:
+            # Проверяем что услуга существует и активна
             from database.repositories.service_repository import ServiceRepository
+            
             service = await ServiceRepository.get_service_by_id(service_id)
-            if not service or not service.is_active:
+            if not service:
+                logging.warning(f"Service {service_id} not found")
                 return False, "service_not_available"
+            
+            if not service.is_active:
+                logging.warning(f"Service {service_id} is inactive")
+                return False, "service_not_available"
+            
             duration = service.duration_minutes
 
         async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -69,7 +109,7 @@ class BookingService:
                     logging.warning(f"User {user_id} exceeded booking limit")
                     return False, "limit_exceeded"
 
-                # ✅ НОВАЯ ЛОГИКА: Проверяем пересечения с учетом длительности
+                # Проверяем пересечения с учетом длительности
                 is_available = await self._check_slot_availability_in_transaction(
                     db, date_str, time_str, duration
                 )
@@ -79,7 +119,7 @@ class BookingService:
                     logging.info(f"Slot {date_str} {time_str} not available")
                     return False, "slot_taken"
 
-                # Создаем запись
+                # Создаем запись (service_id гарантированно не NULL)
                 cursor = await db.execute(
                     """INSERT INTO bookings (date, time, user_id, username, service_id, duration_minutes, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -92,10 +132,13 @@ class BookingService:
                 # Планируем напоминание (вне транзакции)
                 await self._schedule_reminder(booking_id, date_str, time_str, user_id)
                 await Database.log_event(
-                    user_id, "booking_created", f"{date_str} {time_str}"
+                    user_id, "booking_created", f"{date_str} {time_str} service_id={service_id}"
                 )
 
-                logging.info(f"Booking created: {booking_id} for user {user_id}")
+                logging.info(
+                    f"Booking created: {booking_id} for user {user_id}, "
+                    f"service {service_id}, duration {duration}min"
+                )
                 return True, "success"
 
             except sqlite3.IntegrityError as e:
@@ -104,13 +147,23 @@ class BookingService:
                 return False, "slot_taken"
             except Exception as e:
                 await db.rollback()
-                logging.error(f"Error in create_booking: {e}")
+                logging.error(f"Error in create_booking: {e}", exc_info=True)
                 return False, "unknown_error"
 
     async def _check_slot_availability_in_transaction(
         self, db: aiosqlite.Connection, date_str: str, time_str: str, duration_minutes: int
     ) -> bool:
-        """Проверка доступности с учетом пересечений (внутри транзакции)"""
+        """Проверка доступности с учетом пересечений (внутри транзакции)
+        
+        Args:
+            db: Активное соединение с БД (внутри транзакции)
+            date_str: Дата в формате YYYY-MM-DD
+            time_str: Время в формате HH:MM
+            duration_minutes: Длительность в минутах
+            
+        Returns:
+            True если слот свободен, False если занят
+        """
         # Парсим время начала
         start_time = datetime.strptime(time_str, "%H:%M")
         end_time = start_time + timedelta(minutes=duration_minutes)
@@ -137,11 +190,16 @@ class BookingService:
             # Интервалы пересекаются если:
             # start_time < booking_end AND end_time > booking_start
             if start_time < booking_end and end_time > booking_start:
+                logging.debug(
+                    f"Slot conflict: {time_str}-{end_time.strftime('%H:%M')} overlaps with "
+                    f"{booking_time_str}-{booking_end.strftime('%H:%M')}"
+                )
                 return False
 
         # Проверяем заблокированные слоты
         for (blocked_time,) in blocked:
             if blocked_time == time_str:
+                logging.debug(f"Slot {time_str} is blocked")
                 return False
 
         return True
@@ -156,7 +214,20 @@ class BookingService:
         user_id: int,
         username: str,
     ) -> bool:
-        """Перенос записи в одной транзакции"""
+        """Перенос записи в одной транзакции
+        
+        Args:
+            booking_id: ID записи для переноса
+            old_date_str: Старая дата
+            old_time_str: Старое время
+            new_date_str: Новая дата
+            new_time_str: Новое время
+            user_id: ID пользователя
+            username: Имя пользователя
+            
+        Returns:
+            True если перенос успешен, False иначе
+        """
         async with aiosqlite.connect(DATABASE_PATH) as db:
             await db.execute("BEGIN IMMEDIATE")
 
@@ -216,11 +287,15 @@ class BookingService:
 
             except Exception as e:
                 await db.rollback()
-                logging.error(f"Error in reschedule_booking: {e}")
+                logging.error(f"Error in reschedule_booking: {e}", exc_info=True)
                 return False
 
-    def _remove_job_safe(self, job_id: str):
-        """Безопасное удаление задачи из scheduler"""
+    def _remove_job_safe(self, job_id: str) -> None:
+        """Безопасное удаление задачи из scheduler
+        
+        Args:
+            job_id: Идентификатор задачи
+        """
         try:
             self.scheduler.remove_job(job_id)
         except Exception:
@@ -228,8 +303,15 @@ class BookingService:
 
     async def _schedule_reminder(
         self, booking_id: int, date_str: str, time_str: str, user_id: int
-    ):
-        """Планирование напоминаний"""
+    ) -> None:
+        """Планирование напоминаний
+        
+        Args:
+            booking_id: ID записи
+            date_str: Дата записи
+            time_str: Время записи
+            user_id: ID пользователя
+        """
         try:
             booking_datetime = datetime.strptime(
                 f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
@@ -281,12 +363,21 @@ class BookingService:
                 replace_existing=True,
             )
         except Exception as e:
-            logging.error(f"Error scheduling reminder: {e}")
+            logging.error(f"Error scheduling reminder: {e}", exc_info=True)
 
     async def cancel_booking(
         self, date_str: str, time_str: str, user_id: int
     ) -> Tuple[bool, int]:
-        """Отмена записи"""
+        """Отмена записи
+        
+        Args:
+            date_str: Дата записи
+            time_str: Время записи
+            user_id: ID пользователя
+            
+        Returns:
+            Tuple[success, booking_id]
+        """
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 async with db.execute(
@@ -312,10 +403,10 @@ class BookingService:
             logging.info(f"Booking {booking_id} cancelled by user {user_id}")
             return True, booking_id
         except Exception as e:
-            logging.error(f"Error cancelling booking: {e}")
+            logging.error(f"Error cancelling booking: {e}", exc_info=True)
             return False, 0
 
-    async def restore_reminders(self):
+    async def restore_reminders(self) -> None:
         """Восстановить напоминания после рестарта"""
         try:
             now = now_local()
@@ -369,10 +460,16 @@ class BookingService:
 
             logging.info(f"Restored {restored_count} reminders")
         except Exception as e:
-            logging.error(f"Error restoring reminders: {e}")
+            logging.error(f"Error restoring reminders: {e}", exc_info=True)
 
-    async def _send_reminder(self, user_id: int, date_str: str, time_str: str):
-        """Отправка напоминания"""
+    async def _send_reminder(self, user_id: int, date_str: str, time_str: str) -> None:
+        """Отправка напоминания
+        
+        Args:
+            user_id: ID пользователя
+            date_str: Дата записи
+            time_str: Время записи
+        """
         try:
             from config import DAY_NAMES, SERVICE_LOCATION
 
@@ -389,12 +486,19 @@ class BookingService:
             )
             await Database.log_event(user_id, "reminder_sent", f"{date_str} {time_str}")
         except Exception as e:
-            logging.error(f"Error sending reminder: {e}")
+            logging.error(f"Error sending reminder: {e}", exc_info=True)
 
     async def _send_feedback_request(
         self, user_id: int, booking_id: int, date_str: str, time_str: str
-    ):
-        """Запрос обратной связи"""
+    ) -> None:
+        """Запрос обратной связи
+        
+        Args:
+            user_id: ID пользователя
+            booking_id: ID записи
+            date_str: Дата записи
+            time_str: Время записи
+        """
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
         feedback_kb = InlineKeyboardMarkup(
@@ -431,4 +535,4 @@ class BookingService:
                 user_id, "feedback_request_sent", f"{date_str} {time_str}"
             )
         except Exception as e:
-            logging.error(f"Error sending feedback request: {e}")
+            logging.error(f"Error sending feedback request: {e}", exc_info=True)
