@@ -12,11 +12,9 @@ from config import (
     MAX_BOOKINGS_PER_USER,
     ONBOARDING_DELAY_LONG,
     ONBOARDING_DELAY_SHORT,
-    SERVICE_DURATION,
-    SERVICE_LOCATION,
-    SERVICE_PRICE,
 )
 from database.queries import Database
+from database.repositories.service_repository import ServiceRepository
 from keyboards.user_keyboards import MAIN_MENU, create_onboarding_keyboard
 
 router = Router()
@@ -45,11 +43,7 @@ async def start_cmd(message: Message, state: FSMContext):
             "📅 Запись за 30 секунд\n"
             "🔄 Перенос в 2 клика\n"
             "⏰ Напоминания за 24ч\n"
-            "⭐ 4.8/5 на основе 247 отзывов\n\n"
-            "📋 ИНФОРМАЦИЯ:\n"
-            f"⏱ Длительность: {SERVICE_DURATION}\n"
-            f"💰 Стоимость: {SERVICE_PRICE}\n"
-            f"📍 Место: {SERVICE_LOCATION}"
+            "⭐ 4.8/5 на основе 247 отзывов"
         )
         await asyncio.sleep(ONBOARDING_DELAY_SHORT)
 
@@ -107,17 +101,37 @@ async def skip_onboarding(callback: CallbackQuery, state: FSMContext):
 
 @router.message(F.text == "ℹ️ О сервисе")
 async def about_service(message: Message):
-    """Информация о сервисе"""
-    await message.answer(
-        "ℹ️ ИНФОРМАЦИЯ О УСЛУГЕ\n\n"
-        f"⏱ Длительность: {SERVICE_DURATION}\n"
-        f"📍 Место: {SERVICE_LOCATION}\n"
-        f"💰 Стоимость: {SERVICE_PRICE}\n\n"
+    """Информация о сервисе - получение из активных услуг"""
+    # ✅ ИСПРАВЛЕНО: получаем информацию из активных услуг
+    services = await ServiceRepository.get_all_services(active_only=True)
+    
+    if not services:
+        await message.answer(
+            "ℹ️ ИНФОРМАЦИЯ О СЕРВИСЕ\n\n"
+            "В данный момент услуги временно недоступны.\n"
+            "Пожалуйста, обратитесь к администратору.",
+            reply_markup=MAIN_MENU,
+        )
+        return
+    
+    # Формируем список услуг
+    text = "ℹ️ ДОСТУПНЫЕ УСЛУГИ\n\n"
+    
+    for i, service in enumerate(services, 1):
+        text += f"{i}. 📝 {service.name}\n"
+        text += f"   ⏱ Длительность: {service.duration_minutes} мин\n"
+        text += f"   💰 Стоимость: {service.price}\n"
+        if service.description:
+            text += f"   📄 {service.description}\n"
+        text += "\n"
+    
+    text += (
         f"🔔 Напоминание за {CANCELLATION_HOURS}ч до встречи\n"
         f"❌ Отмена возможна за {CANCELLATION_HOURS}ч\n"
-        f"📊 Лимит одновременных записей: {MAX_BOOKINGS_PER_USER}",
-        reply_markup=MAIN_MENU,
+        f"📊 Лимит одновременных записей: {MAX_BOOKINGS_PER_USER}"
     )
+    
+    await message.answer(text, reply_markup=MAIN_MENU)
 
 
 @router.message(F.text == "📅 Записаться")
