@@ -22,3 +22,14 @@ class AdminStates(StatesGroup):
     awaiting_block_date = State()
     awaiting_block_time = State()
     awaiting_block_reason = State()
+    
+    # Состояния для управления услугами
+    service_awaiting_name = State()
+    service_awaiting_description = State()
+    service_awaiting_duration = State()
+    service_awaiting_price = State()
+    service_awaiting_color = State()
+    
+    # Состояния для редактирования услуги
+    service_edit_field = State()
+    service_edit_value = State()
