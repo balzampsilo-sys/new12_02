@@ -34,7 +34,8 @@ class Database:
                 """CREATE TABLE IF NOT EXISTS bookings
                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT, time TEXT, user_id INTEGER, username TEXT,
-                created_at TEXT, UNIQUE(date, time))"""
+                created_at TEXT, service_id INTEGER DEFAULT 1,
+                UNIQUE(date, time))"""
             )
 
             await db.execute(
@@ -68,6 +69,21 @@ class Database:
                 (user_id INTEGER PRIMARY KEY, message_id INTEGER, updated_at TEXT)"""
             )
 
+            # ✅ P2: Миграция - добавляем service_id если его еще нет
+            try:
+                async with db.execute("PRAGMA table_info(bookings)") as cursor:
+                    columns = await cursor.fetchall()
+                    column_names = [col[1] for col in columns]
+                    
+                    if "service_id" not in column_names:
+                        logging.info("🔄 Добавляем service_id в существующую таблицу bookings...")
+                        await db.execute(
+                            "ALTER TABLE bookings ADD COLUMN service_id INTEGER DEFAULT 1"
+                        )
+                        logging.info("✅ service_id добавлен")
+            except Exception as e:
+                logging.warning(f"⚠️ Не удалось добавить service_id: {e}")
+
             # Индексы для производительности
             await db.execute(
                 """CREATE INDEX IF NOT EXISTS idx_bookings_date
@@ -76,6 +92,10 @@ class Database:
             await db.execute(
                 """CREATE INDEX IF NOT EXISTS idx_bookings_user
                 ON bookings(user_id)"""
+            )
+            await db.execute(
+                """CREATE INDEX IF NOT EXISTS idx_bookings_service
+                ON bookings(service_id)"""
             )
             await db.execute(
                 """CREATE INDEX IF NOT EXISTS idx_analytics_user
