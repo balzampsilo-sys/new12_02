@@ -36,14 +36,9 @@ class RateLimitMiddleware(BaseMiddleware):
         if user_id in self.cache:
             # Для callback query отвечаем тихо
             if isinstance(event, CallbackQuery):
-                await event.answer(
-                    "⏳ Слишком быстро! Подождите немного",
-                    show_alert=False
-                )
+                await event.answer("⏳ Слишком быстро! Подождите немного", show_alert=False)
             elif isinstance(event, Message):
-                await event.answer(
-                    "⏳ Пожалуйста, подождите немного перед следующим действием"
-                )
+                await event.answer("⏳ Пожалуйста, подождите немного перед следующим действием")
             logging.warning(f"Rate limit exceeded for user {user_id}")
             return
 

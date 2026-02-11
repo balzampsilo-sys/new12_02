@@ -100,14 +100,12 @@ class Database:
                     column_names = [col[1] for col in columns]
 
                     if "service_id" not in column_names:
-                        logging.info(
-                            "🔄 Добавляем service_id в существующую таблицу bookings..."
-                        )
+                        logging.info("🔄 Добавляем service_id в существующую таблицу bookings...")
                         await db.execute(
                             "ALTER TABLE bookings ADD COLUMN service_id INTEGER DEFAULT 1"
                         )
                         logging.info("✅ service_id добавлен")
-                    
+
                     if "duration_minutes" not in column_names:
                         logging.info(
                             "🔄 Добавляем duration_minutes в существующую таблицу bookings..."
@@ -179,20 +177,14 @@ class Database:
                 """CREATE INDEX IF NOT EXISTS idx_admins_added
                 ON admins(added_at)"""
             )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_admin ON audit_log(admin_id)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)"
-            )
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_admin ON audit_log(admin_id)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)"
             )
 
             await db.commit()
-            logging.info(
-                "Database initialized with indexes and race condition protection"
-            )
+            logging.info("Database initialized with indexes and race condition protection")
 
     # === БРОНИРОВАНИЯ (делегирование в BookingRepository) ===
 
@@ -226,9 +218,7 @@ class Database:
         return await BookingRepository.can_cancel_booking(date_str, time_str)
 
     @staticmethod
-    async def get_booking_by_id(
-        booking_id: int, user_id: int
-    ) -> Optional[Tuple[str, str, str]]:
+    async def get_booking_by_id(booking_id: int, user_id: int) -> Optional[Tuple[str, str, str]]:
         return await BookingRepository.get_booking_by_id(booking_id, user_id)
 
     @staticmethod
@@ -265,9 +255,7 @@ class Database:
         return await BookingRepository.get_week_schedule(start_date, days)
 
     @staticmethod
-    async def block_slot(
-        date_str: str, time_str: str, admin_id: int, reason: str = None
-    ) -> bool:
+    async def block_slot(date_str: str, time_str: str, admin_id: int, reason: str = None) -> bool:
         return await BookingRepository.block_slot(date_str, time_str, admin_id, reason)
 
     @staticmethod

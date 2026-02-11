@@ -21,11 +21,9 @@ class NotificationService:
         try:
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             message_text = (
-                "🔔 Новая запись\n\n"
-                f"{date_obj.strftime('%d.%m')} в {time_str}\n"
-                f"@{username}"
+                "🔔 Новая запись\n\n" f"{date_obj.strftime('%d.%m')} в {time_str}\n" f"@{username}"
             )
-            
+
             # Отправляем всем админам
             for admin_id in ADMIN_IDS:
                 try:
@@ -35,18 +33,14 @@ class NotificationService:
         except Exception as e:
             logging.error(f"Error notifying admins about booking: {e}")
 
-    async def notify_admin_cancellation(
-        self, date_str: str, time_str: str, user_id: int
-    ):
+    async def notify_admin_cancellation(self, date_str: str, time_str: str, user_id: int):
         """Уведомление админам об отмене"""
         try:
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             message_text = (
-                "❌ Отмена\n\n"
-                f"{date_obj.strftime('%d.%m')} в {time_str}\n"
-                f"ID: {user_id}"
+                "❌ Отмена\n\n" f"{date_obj.strftime('%d.%m')} в {time_str}\n" f"ID: {user_id}"
             )
-            
+
             # Отправляем всем админам
             for admin_id in ADMIN_IDS:
                 try:

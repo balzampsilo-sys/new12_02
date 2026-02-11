@@ -41,14 +41,14 @@ async def services_button_handler(message: Message):
     if not is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
-    
+
     # Создаем callback для перехода в меню услуг
     from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-    
+
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🔎 Открыть меню", callback_data="admin_services")
     ]])
-    
+
     await message.answer(
         "🎯 УПРАВЛЕНИЕ УСЛУГАМИ\n\n"
         "Здесь вы можете:\n"
@@ -158,7 +158,7 @@ python main.py
 
 ### 🔄 Изменение порядка
 
-Перемещайте услуги вверх ⬆️ или вниз ⬇️ 
+Перемещайте услуги вверх ⬆️ или вниз ⬇️
 Порядок сразу отображается пользователям при выборе услуги.
 
 ---

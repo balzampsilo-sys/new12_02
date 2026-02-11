@@ -35,40 +35,41 @@ def create_ascii_chart(data: list, width: int = 7) -> str:
 def is_admin(user_id: int) -> bool:
     """
     Проверка прав администратора (синхронная версия).
-    
+
     Проверяет только статических админов из .env
     Для полной проверки (БД + .env) используйте is_admin_async()
-    
+
     Args:
         user_id: Telegram user ID
-        
+
     Returns:
         True если админ в .env, False если нет
     """
     from config import ADMIN_IDS
+
     return user_id in ADMIN_IDS
 
 
 async def is_admin_async(user_id: int) -> bool:
     """
     Проверка прав администратора (асинхронная версия).
-    
+
     Проверяет:
     1. Статические админы из .env (ADMIN_IDS)
     2. Динамические админы из БД (admins)
-    
+
     Args:
         user_id: Telegram user ID
-        
+
     Returns:
         True если админ, False если нет
     """
     from config import ADMIN_IDS
     from database.queries import Database
-    
+
     # Проверяем статических админов из .env
     if user_id in ADMIN_IDS:
         return True
-    
+
     # Проверяем динамических админов из БД
     return await Database.is_admin_in_db(user_id)

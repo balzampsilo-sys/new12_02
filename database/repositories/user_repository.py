@@ -33,9 +33,7 @@ class UserRepository(BaseRepository):
     async def get_all_users() -> List[int]:
         """Получить список всех user_id"""
         try:
-            users = await UserRepository._execute_query(
-                "SELECT user_id FROM users", fetch_all=True
-            )
+            users = await UserRepository._execute_query("SELECT user_id FROM users", fetch_all=True)
             return [user_id for (user_id,) in users] if users else []
         except Exception as e:
             logging.error(f"Error getting all users: {e}")

@@ -41,7 +41,7 @@ SERVICE_LOCATION = os.getenv("SERVICE_LOCATION", "Москва, ул. Приме
 
 # === ONBOARDING ✅ ADDED ===
 ONBOARDING_DELAY_SHORT = float(os.getenv("ONBOARDING_DELAY_SHORT", "1.5"))  # секунды
-ONBOARDING_DELAY_LONG = float(os.getenv("ONBOARDING_DELAY_LONG", "3.0"))   # секунды
+ONBOARDING_DELAY_LONG = float(os.getenv("ONBOARDING_DELAY_LONG", "3.0"))  # секунды
 
 # === WORK SCHEDULE ===
 WORK_HOURS_START = int(os.getenv("WORK_HOURS_START", "9"))
@@ -68,7 +68,7 @@ BROADCAST_DELAY = float(os.getenv("BROADCAST_DELAY", "0.05"))
 CALENDAR_MAX_MONTHS_AHEAD = int(os.getenv("CALENDAR_MAX_MONTHS_AHEAD", "3"))
 
 # === TIMEZONE ✅ FIXED: Use pytz for proper DST handling ===
-TIMEZONE = pytz.timezone('Europe/Moscow')  # Properly handles DST transitions
+TIMEZONE = pytz.timezone("Europe/Moscow")  # Properly handles DST transitions
 
 # === DAY NAMES ===
 DAY_NAMES = [
@@ -84,8 +84,18 @@ DAY_NAMES = [
 DAY_NAMES_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 MONTH_NAMES = [
-    "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
 ]
 
 # === CALLBACK VALIDATION ===

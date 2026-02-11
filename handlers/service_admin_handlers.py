@@ -4,12 +4,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.repositories.service_repository import ServiceRepository
 from keyboards.admin_keyboards import ADMIN_MENU
@@ -20,6 +15,7 @@ router = Router()
 
 
 # === ПРОСМОТР УСЛУГ ===
+
 
 @router.callback_query(F.data == "admin_services")
 async def services_menu(callback: CallbackQuery):
@@ -43,25 +39,21 @@ async def services_menu(callback: CallbackQuery):
             text += f"{status} {service.name}\n"
             text += f"   ⏱️ {service.duration_minutes} мин | 💰 {service.price}\n"
             if service.description:
-                desc = service.description[:40] + "..." if len(service.description) > 40 else service.description
+                desc = (
+                    service.description[:40] + "..."
+                    if len(service.description) > 40
+                    else service.description
+                )
                 text += f"   💬 {desc}\n"
             text += "\n"
     else:
         text += "💭 Услуг пока нет"
 
     keyboard = [
-        [
-            InlineKeyboardButton(text="➕ Добавить услугу", callback_data="service_add")
-        ],
-        [
-            InlineKeyboardButton(text="✏️ Редактировать", callback_data="service_list_edit")
-        ],
-        [
-            InlineKeyboardButton(text="🔄 Изменить порядок", callback_data="service_reorder")
-        ],
-        [
-            InlineKeyboardButton(text="🔙 Назад", callback_data="admin_cancel")
-        ],
+        [InlineKeyboardButton(text="➕ Добавить услугу", callback_data="service_add")],
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="service_list_edit")],
+        [InlineKeyboardButton(text="🔄 Изменить порядок", callback_data="service_reorder")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_cancel")],
     ]
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -71,6 +63,7 @@ async def services_menu(callback: CallbackQuery):
 
 
 # === ДОБАВЛЕНИЕ УСЛУГИ ===
+
 
 @router.callback_query(F.data == "service_add")
 async def service_add_start(callback: CallbackQuery, state: FSMContext):
@@ -182,10 +175,7 @@ async def service_add_duration(message: Message, state: FSMContext):
             )
             return
     except ValueError:
-        await message.answer(
-            "❌ Неверный формат. Введите число\n\n"
-            "Пример: 60"
-        )
+        await message.answer("❌ Неверный формат. Введите число\n\n" "Пример: 60")
         return
 
     await state.update_data(service_duration=duration)
@@ -221,8 +211,7 @@ async def service_add_price_and_save(message: Message, state: FSMContext):
 
     if len(message.text) > 50:
         await message.answer(
-            "❌ Слишком длинная цена (макс. 50 символов)\n\n"
-            "Введите более короткую цену:"
+            "❌ Слишком длинная цена (макс. 50 символов)\n\n" "Введите более короткую цену:"
         )
         return
 
@@ -247,7 +236,7 @@ async def service_add_price_and_save(message: Message, state: FSMContext):
         price=price,
         is_active=True,
         display_order=max_order + 1,
-        color=default_color
+        color=default_color,
     )
 
     await state.clear()
@@ -261,14 +250,11 @@ async def service_add_price_and_save(message: Message, state: FSMContext):
             f"💰 Цена: {price}\n"
             f"✅ Статус: Активна\n\n"
             "🎉 Пользователи теперь могут выбрать эту услугу при записи!",
-            reply_markup=ADMIN_MENU
+            reply_markup=ADMIN_MENU,
         )
         logging.info(f"Admin {message.from_user.id} created service: {name}")
     else:
-        await message.answer(
-            "❌ Ошибка при создании услуги",
-            reply_markup=ADMIN_MENU
-        )
+        await message.answer("❌ Ошибка при создании услуги", reply_markup=ADMIN_MENU)
 
 
 # Продолжение следует...

@@ -13,9 +13,7 @@ async def migrate():
     async with aiosqlite.connect(DATABASE_PATH) as db:
         # 1. Добавляем роль в таблицу admins
         try:
-            await db.execute(
-                "ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'moderator'"
-            )
+            await db.execute("ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'moderator'")
             logging.info("✅ Added 'role' column to admins table")
         except Exception as e:
             logging.warning(f"⚠️ Column 'role' already exists: {e}")
@@ -34,15 +32,9 @@ async def migrate():
         logging.info("✅ Created audit_log table")
 
         # 3. Индексы для audit_log
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_audit_admin ON audit_log(admin_id)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_admin ON audit_log(admin_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)")
         logging.info("✅ Created audit_log indexes")
 
         await db.commit()

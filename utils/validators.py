@@ -8,24 +8,22 @@ from utils.helpers import now_local
 
 
 def parse_callback_data(
-    callback_data: str, 
-    expected_parts: int,
-    separator: str = ":"
+    callback_data: str, expected_parts: int, separator: str = ":"
 ) -> Optional[Tuple[str, ...]]:
     """Безопасный парсинг callback_data
-    
+
     Args:
         callback_data: Строка callback данных
         expected_parts: Ожидаемое количество частей
         separator: Разделитель (по умолчанию ":")
-    
+
     Returns:
         Tuple с частями или None при ошибке
-        
+
     Example:
         >>> parse_callback_data("confirm:2026-02-10:10:00", 3)
         ('confirm', '2026-02-10', '10:00')
-        
+
         >>> parse_callback_data("invalid", 3)
         None
     """
@@ -45,18 +43,18 @@ def parse_callback_data(
 
 def validate_date_format(date_str: str, format: str = "%Y-%m-%d") -> bool:
     """Проверка формата даты
-    
+
     Args:
         date_str: Строка даты
         format: Формат даты (по умолчанию YYYY-MM-DD)
-        
+
     Returns:
         True если формат корректен
-        
+
     Example:
         >>> validate_date_format("2026-02-10")
         True
-        
+
         >>> validate_date_format("10-02-2026")
         False
     """
@@ -69,18 +67,18 @@ def validate_date_format(date_str: str, format: str = "%Y-%m-%d") -> bool:
 
 def validate_time_format(time_str: str, format: str = "%H:%M") -> bool:
     """Проверка формата времени
-    
+
     Args:
         time_str: Строка времени
         format: Формат времени (по умолчанию HH:MM)
-        
+
     Returns:
         True если формат корректен
-        
+
     Example:
         >>> validate_time_format("14:30")
         True
-        
+
         >>> validate_time_format("25:00")
         False
     """
@@ -93,53 +91,53 @@ def validate_time_format(time_str: str, format: str = "%H:%M") -> bool:
 
 def validate_booking_data(date_str: str, time_str: str) -> Tuple[bool, str]:
     """Комплексная валидация данных бронирования
-    
+
     Args:
         date_str: Дата в формате YYYY-MM-DD
         time_str: Время в формате HH:MM
-        
+
     Returns:
         Tuple (is_valid, error_message)
-        
+
     Example:
         >>> validate_booking_data("2026-02-10", "14:30")
         (True, "")
-        
+
         >>> validate_booking_data("invalid", "14:30")
         (False, "Неверный формат даты")
     """
     if not validate_date_format(date_str):
         return False, "Неверный формат даты"
-    
+
     if not validate_time_format(time_str):
         return False, "Неверный формат времени"
-    
+
     return True, ""
 
 
 def validate_date_not_past(date_str: str) -> Tuple[bool, str]:
     """Проверка что дата не в прошлом
-    
+
     Args:
         date_str: Дата в формате YYYY-MM-DD
-        
+
     Returns:
         Tuple (is_valid, error_message)
-        
+
     Example:
         >>> validate_date_not_past("2026-12-31")
         (True, "")
-        
+
         >>> validate_date_not_past("2020-01-01")
         (False, "Нельзя выбрать прошедшую дату")
     """
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
         today = now_local().date()
-        
+
         if date_obj.date() < today:
             return False, "Нельзя выбрать прошедшую дату"
-        
+
         return True, ""
     except ValueError:
         return False, "Неверный формат даты"
@@ -147,19 +145,19 @@ def validate_date_not_past(date_str: str) -> Tuple[bool, str]:
 
 def validate_work_hours(hour: int, start_hour: int, end_hour: int) -> bool:
     """Проверка что время в рабочих часах
-    
+
     Args:
         hour: Час для проверки
         start_hour: Начало рабочего дня
         end_hour: Конец рабочего дня
-        
+
     Returns:
         True если час в рабочих часах
-        
+
     Example:
         >>> validate_work_hours(10, 9, 19)
         True
-        
+
         >>> validate_work_hours(20, 9, 19)
         False
     """
@@ -168,17 +166,17 @@ def validate_work_hours(hour: int, start_hour: int, end_hour: int) -> bool:
 
 def validate_rating(rating: int) -> bool:
     """Проверка рейтинга
-    
+
     Args:
         rating: Значение рейтинга
-        
+
     Returns:
         True если рейтинг в диапазоне 1-5
-        
+
     Example:
         >>> validate_rating(5)
         True
-        
+
         >>> validate_rating(0)
         False
     """
@@ -187,45 +185,45 @@ def validate_rating(rating: int) -> bool:
 
 def sanitize_user_input(text: str, max_length: int = 200) -> str:
     """Очистка пользовательского ввода
-    
+
     Args:
         text: Текст для очистки
         max_length: Максимальная длина
-        
+
     Returns:
         Очищенный текст
-        
+
     Example:
         >>> sanitize_user_input("  Привет   мир  ")
         'Привет мир'
     """
     if not text:
         return ""
-    
+
     # Удаляем лишние пробелы
     text = " ".join(text.split())
-    
+
     # Обрезаем до максимальной длины
     if len(text) > max_length:
         text = text[:max_length]
-    
+
     return text
 
 
 def validate_id(value: str, name: str = "ID") -> Optional[int]:
     """Валидация и преобразование ID в integer
-    
+
     Args:
         value: Строковое значение ID
         name: Название поля для логирования
-        
+
     Returns:
         Integer ID или None при ошибке
-        
+
     Example:
         >>> validate_id("123")
         123
-        
+
         >>> validate_id("invalid")
         None
     """

@@ -4,12 +4,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.queries import Database
 from database.repositories.service_repository import ServiceRepository
@@ -21,6 +16,7 @@ router = Router()
 
 
 # === РЕДАКТИРОВАНИЕ УСЛУГ ===
+
 
 @router.callback_query(F.data == "service_list_edit")
 async def service_list_for_edit(callback: CallbackQuery):
@@ -39,23 +35,15 @@ async def service_list_for_edit(callback: CallbackQuery):
     for service in services:
         status = "✅" if service.is_active else "🚫"
         text = f"{status} {service.name} ({service.duration_minutes}м)"
-        keyboard.append([
-            InlineKeyboardButton(
-                text=text,
-                callback_data=f"service_edit:{service.id}"
-            )
-        ])
+        keyboard.append(
+            [InlineKeyboardButton(text=text, callback_data=f"service_edit:{service.id}")]
+        )
 
-    keyboard.append([
-        InlineKeyboardButton(text="🔙 Назад", callback_data="admin_services")
-    ])
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_services")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-    await callback.message.edit_text(
-        "✏️ Выберите услугу для редактирования:",
-        reply_markup=kb
-    )
+    await callback.message.edit_text("✏️ Выберите услугу для редактирования:", reply_markup=kb)
     await callback.answer()
 
 
@@ -95,43 +83,31 @@ async def service_edit_menu(callback: CallbackQuery):
     keyboard = [
         [
             InlineKeyboardButton(
-                text="✏️ Изменить название",
-                callback_data=f"service_field:{service_id}:name"
+                text="✏️ Изменить название", callback_data=f"service_field:{service_id}:name"
             )
         ],
         [
             InlineKeyboardButton(
-                text="💬 Изменить описание",
-                callback_data=f"service_field:{service_id}:description"
+                text="💬 Изменить описание", callback_data=f"service_field:{service_id}:description"
             )
         ],
         [
             InlineKeyboardButton(
-                text="⏱️ Изменить длительность",
-                callback_data=f"service_field:{service_id}:duration"
+                text="⏱️ Изменить длительность", callback_data=f"service_field:{service_id}:duration"
             )
         ],
         [
             InlineKeyboardButton(
-                text="💰 Изменить цену",
-                callback_data=f"service_field:{service_id}:price"
+                text="💰 Изменить цену", callback_data=f"service_field:{service_id}:price"
             )
         ],
+        [InlineKeyboardButton(text=toggle_text, callback_data=f"service_toggle:{service_id}")],
         [
             InlineKeyboardButton(
-                text=toggle_text,
-                callback_data=f"service_toggle:{service_id}"
+                text="🗑️ Удалить услугу", callback_data=f"service_delete_confirm:{service_id}"
             )
         ],
-        [
-            InlineKeyboardButton(
-                text="🗑️ Удалить услугу",
-                callback_data=f"service_delete_confirm:{service_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(text="🔙 Назад", callback_data="service_list_edit")
-        ],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="service_list_edit")],
     ]
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -171,7 +147,7 @@ async def service_edit_field_start(callback: CallbackQuery, state: FSMContext):
 
     current_values = {
         "name": service.name,
-        "description": service.description or 'не указано',
+        "description": service.description or "не указано",
         "duration": service.duration_minutes,
         "price": service.price,
     }
@@ -212,37 +188,29 @@ async def service_edit_field_save(message: Message, state: FSMContext):
                 )
                 return
         except ValueError:
-            await message.answer(
-                "❌ Неверный формат. Введите число:"
-            )
+            await message.answer("❌ Неверный формат. Введите число:")
             return
     else:
         value = message.text
 
     # Обновляем поле
     success = await ServiceRepository.update_service_field(
-        service_id=service_id,
-        field=field,
-        value=value
+        service_id=service_id, field=field, value=value
     )
 
     await state.clear()
 
     if success:
         await message.answer(
-            f"✅ Поле успешно обновлено!\n\n"
-            f"Новое значение: {value}",
-            reply_markup=ADMIN_MENU
+            f"✅ Поле успешно обновлено!\n\n" f"Новое значение: {value}", reply_markup=ADMIN_MENU
         )
         logging.info(f"Admin {message.from_user.id} updated service {service_id}, field {field}")
     else:
-        await message.answer(
-            "❌ Ошибка при обновлении",
-            reply_markup=ADMIN_MENU
-        )
+        await message.answer("❌ Ошибка при обновлении", reply_markup=ADMIN_MENU)
 
 
 # === ВКЛ/ОТКЛ УСЛУГИ ===
+
 
 @router.callback_query(F.data.startswith("service_toggle:"))
 async def service_toggle_active(callback: CallbackQuery):
@@ -264,16 +232,14 @@ async def service_toggle_active(callback: CallbackQuery):
 
     new_status = not service.is_active
     success = await ServiceRepository.update_service_field(
-        service_id=service_id,
-        field="is_active",
-        value=1 if new_status else 0
+        service_id=service_id, field="is_active", value=1 if new_status else 0
     )
 
     if success:
         status_text = "Включена" if new_status else "Отключена"
         await callback.answer(f"✅ Услуга {status_text}")
         logging.info(f"Admin {callback.from_user.id} toggled service {service_id} to {new_status}")
-        
+
         # Обновляем меню
         await service_edit_menu(callback)
     else:
@@ -281,6 +247,7 @@ async def service_toggle_active(callback: CallbackQuery):
 
 
 # === УДАЛЕНИЕ УСЛУГИ ===
+
 
 @router.callback_query(F.data.startswith("service_delete_confirm:"))
 async def service_delete_confirm(callback: CallbackQuery):
@@ -302,12 +269,12 @@ async def service_delete_confirm(callback: CallbackQuery):
 
     # Проверяем наличие записей на эту услугу
     import aiosqlite
+
     from config import DATABASE_PATH
-    
+
     async with aiosqlite.connect(DATABASE_PATH) as db:
         async with db.execute(
-            "SELECT COUNT(*) FROM bookings WHERE service_id = ?",
-            (service_id,)
+            "SELECT COUNT(*) FROM bookings WHERE service_id = ?", (service_id,)
         ) as cursor:
             (count,) = await cursor.fetchone()
 
@@ -318,16 +285,10 @@ async def service_delete_confirm(callback: CallbackQuery):
     keyboard = [
         [
             InlineKeyboardButton(
-                text="✅ Да, удалить",
-                callback_data=f"service_delete_yes:{service_id}"
+                text="✅ Да, удалить", callback_data=f"service_delete_yes:{service_id}"
             )
         ],
-        [
-            InlineKeyboardButton(
-                text="❌ Отмена",
-                callback_data=f"service_edit:{service_id}"
-            )
-        ],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"service_edit:{service_id}")],
     ]
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -339,7 +300,7 @@ async def service_delete_confirm(callback: CallbackQuery):
         f"💰 {service.price}\n"
         f"{warning}\n\n"
         "Вы уверены?",
-        reply_markup=kb
+        reply_markup=kb,
     )
     await callback.answer()
 
@@ -361,8 +322,7 @@ async def service_delete_execute(callback: CallbackQuery):
 
     if success:
         await callback.message.edit_text(
-            "✅ УСЛУГА УДАЛЕНА\n\n"
-            "Услуга больше не доступна для записи."
+            "✅ УСЛУГА УДАЛЕНА\n\n" "Услуга больше не доступна для записи."
         )
         await callback.answer("✅ Удалено")
         logging.info(f"Admin {callback.from_user.id} deleted service {service_id}")
@@ -371,6 +331,7 @@ async def service_delete_execute(callback: CallbackQuery):
 
 
 # === ИЗМЕНЕНИЕ ПОРЯДКА ===
+
 
 @router.callback_query(F.data == "service_reorder")
 async def service_reorder_menu(callback: CallbackQuery):
@@ -391,39 +352,30 @@ async def service_reorder_menu(callback: CallbackQuery):
     keyboard = []
     for i, service in enumerate(services, 1):
         text += f"{i}. {service.name}\n"
-        
+
         buttons_row = []
-        
+
         # Кнопка вверх (если не первый)
         if i > 1:
             buttons_row.append(
-                InlineKeyboardButton(
-                    text="⬆️",
-                    callback_data=f"service_move:{service.id}:up"
-                )
+                InlineKeyboardButton(text="⬆️", callback_data=f"service_move:{service.id}:up")
             )
-        
+
         buttons_row.append(
             InlineKeyboardButton(
-                text=f"{i}. {service.name[:20]}",
-                callback_data="service_reorder_noop"
+                text=f"{i}. {service.name[:20]}", callback_data="service_reorder_noop"
             )
         )
-        
+
         # Кнопка вниз (если не последний)
         if i < len(services):
             buttons_row.append(
-                InlineKeyboardButton(
-                    text="⬇️",
-                    callback_data=f"service_move:{service.id}:down"
-                )
+                InlineKeyboardButton(text="⬇️", callback_data=f"service_move:{service.id}:down")
             )
-        
+
         keyboard.append(buttons_row)
 
-    keyboard.append([
-        InlineKeyboardButton(text="🔙 Назад", callback_data="admin_services")
-    ])
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_services")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 

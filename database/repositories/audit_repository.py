@@ -46,9 +46,7 @@ class AuditRepository(BaseRepository):
                     ),
                 )
                 await db.commit()
-                logging.info(
-                    f"Audit: admin={admin_id} action={action} target={target_id}"
-                )
+                logging.info(f"Audit: admin={admin_id} action={action} target={target_id}")
                 return True
         except Exception as e:
             logging.error(f"Error logging audit action: {e}")
@@ -100,9 +98,7 @@ class AuditRepository(BaseRepository):
             return []
 
     @staticmethod
-    async def get_logs_count(
-        admin_id: Optional[int] = None, action: Optional[str] = None
-    ) -> int:
+    async def get_logs_count(admin_id: Optional[int] = None, action: Optional[str] = None) -> int:
         """
         Подсчитать количество записей.
 
@@ -155,9 +151,7 @@ class AuditRepository(BaseRepository):
 
             with open(filepath, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(
-                    ["ID", "Admin ID", "Action", "Target ID", "Details", "Timestamp"]
-                )
+                writer.writerow(["ID", "Admin ID", "Action", "Target ID", "Details", "Timestamp"])
                 writer.writerows(logs)
 
             logging.info(f"Audit log exported to {filepath}")

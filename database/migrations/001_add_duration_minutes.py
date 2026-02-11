@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import aiosqlite
+
 from config import DATABASE_PATH
 
 logger = logging.getLogger(__name__)
@@ -32,22 +33,20 @@ async def check_column_exists(db: aiosqlite.Connection, table: str, column: str)
 async def migrate_up():
     """Add duration_minutes column to bookings table"""
     logger.info("Starting migration 001: add duration_minutes")
-    
+
     async with aiosqlite.connect(DATABASE_PATH) as db:
         # Check if column already exists
         if await check_column_exists(db, "bookings", "duration_minutes"):
             logger.info("✅ Column 'duration_minutes' already exists, skipping migration")
             return True
-        
+
         try:
             # Add column with default value
-            await db.execute(
-                "ALTER TABLE bookings ADD COLUMN duration_minutes INTEGER DEFAULT 60"
-            )
+            await db.execute("ALTER TABLE bookings ADD COLUMN duration_minutes INTEGER DEFAULT 60")
             await db.commit()
             logger.info("✅ Migration 001 completed: duration_minutes column added")
             return True
-            
+
         except Exception as e:
             logger.error(f"❌ Migration 001 failed: {e}")
             await db.rollback()
@@ -63,10 +62,10 @@ async def migrate_down():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    
+
     print("🔄 Running migration 001: add duration_minutes")
     success = asyncio.run(migrate_up())
-    
+
     if success:
         print("✅ Migration completed successfully")
         sys.exit(0)

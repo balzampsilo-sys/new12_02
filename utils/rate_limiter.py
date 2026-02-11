@@ -26,9 +26,7 @@ class AdminRateLimiter:
             return
 
         cutoff = datetime.now() - timedelta(hours=1)
-        cls._additions[admin_id] = [
-            ts for ts in cls._additions[admin_id] if ts > cutoff
-        ]
+        cls._additions[admin_id] = [ts for ts in cls._additions[admin_id] if ts > cutoff]
 
         # Удаляем пустые списки
         if not cls._additions[admin_id]:

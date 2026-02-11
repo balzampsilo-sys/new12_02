@@ -76,11 +76,7 @@ class TestAdminRepository(unittest.TestCase):
         """Тест: Успешное добавление админа"""
         with patch("database.repositories.admin_repository.DATABASE_PATH", self.test_db_path):
             result = asyncio.run(
-                AdminRepository.add_admin(
-                    user_id=12345,
-                    username="testuser",
-                    added_by=99999
-                )
+                AdminRepository.add_admin(user_id=12345, username="testuser", added_by=99999)
             )
 
             self.assertTrue(result)
@@ -202,11 +198,7 @@ class TestAdminRepository(unittest.TestCase):
         """Тест: Добавление админа без username"""
         with patch("database.repositories.admin_repository.DATABASE_PATH", self.test_db_path):
             result = asyncio.run(
-                AdminRepository.add_admin(
-                    user_id=12345,
-                    username=None,
-                    added_by=99999
-                )
+                AdminRepository.add_admin(user_id=12345, username=None, added_by=99999)
             )
 
             self.assertTrue(result)
@@ -217,11 +209,9 @@ class TestAdminRepository(unittest.TestCase):
     def test_concurrency_safety(self):
         """Тест: Безопасность при конкурентных запросах"""
         with patch("database.repositories.admin_repository.DATABASE_PATH", self.test_db_path):
+
             async def add_multiple():
-                tasks = [
-                    AdminRepository.add_admin(i, f"user{i}", 999)
-                    for i in range(100, 110)
-                ]
+                tasks = [AdminRepository.add_admin(i, f"user{i}", 999) for i in range(100, 110)]
                 await asyncio.gather(*tasks)
 
             asyncio.run(add_multiple())

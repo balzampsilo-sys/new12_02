@@ -4,12 +4,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import ADMIN_IDS, ROLE_MODERATOR, ROLE_SUPER_ADMIN
 from database.queries import Database
@@ -32,27 +27,11 @@ async def admin_management_menu(message: Message):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📋 Список админов", callback_data="list_admins"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="➕ Добавить админа", callback_data="add_admin_start"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="➖ Удалить админа", callback_data="remove_admin_start"
-                )
-            ],
+            [InlineKeyboardButton(text="📋 Список админов", callback_data="list_admins")],
+            [InlineKeyboardButton(text="➕ Добавить админа", callback_data="add_admin_start")],
+            [InlineKeyboardButton(text="➖ Удалить админа", callback_data="remove_admin_start")],
             # ✅ NEW: Управление ролями
-            [
-                InlineKeyboardButton(
-                    text="🔄 Изменить роль", callback_data="change_role_start"
-                )
-            ],
+            [InlineKeyboardButton(text="🔄 Изменить роль", callback_data="change_role_start")],
         ]
     )
 
@@ -105,11 +84,7 @@ async def list_admins(callback: CallbackQuery):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔙 Назад", callback_data="back_to_admin_menu"
-                )
-            ]
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_admin_menu")]
         ]
     )
 
@@ -126,15 +101,11 @@ async def add_admin_start(callback: CallbackQuery, state: FSMContext):
 
     # ✅ Проверка разрешения
     if not await has_permission(callback.from_user.id, "manage_admins"):
-        await callback.answer(
-            "❌ Недостаточно прав\n\nТолько для Super Admin", show_alert=True
-        )
+        await callback.answer("❌ Недостаточно прав\n\nТолько для Super Admin", show_alert=True)
         return
 
     # ✅ Проверка rate limit
-    can_add, count, minutes = await AdminRateLimiter.can_add_admin(
-        callback.from_user.id
-    )
+    can_add, count, minutes = await AdminRateLimiter.can_add_admin(callback.from_user.id)
 
     if not can_add:
         from config import MAX_ADMIN_ADDITIONS_PER_HOUR
@@ -199,9 +170,7 @@ async def add_admin_process(message: Message, state: FSMContext):
     is_already_admin = await Database.is_admin_in_db(new_admin_id)
     if is_already_admin:
         await state.clear()
-        await message.answer(
-            "⚠️ Этот пользователь уже админ", reply_markup=ADMIN_MENU
-        )
+        await message.answer("⚠️ Этот пользователь уже админ", reply_markup=ADMIN_MENU)
         return
 
     # Получаем username с fallback
@@ -324,13 +293,9 @@ async def _finalize_admin_addition(
         except Exception as e:
             logging.warning(f"Failed to notify new admin {new_admin_id}: {e}")
 
-        logging.info(
-            f"Admin {message.from_user.id} added new admin {new_admin_id} ({username})"
-        )
+        logging.info(f"Admin {message.from_user.id} added new admin {new_admin_id} ({username})")
     else:
-        await message.answer(
-            "❌ Ошибка при добавлении админа", reply_markup=ADMIN_MENU
-        )
+        await message.answer("❌ Ошибка при добавлении админа", reply_markup=ADMIN_MENU)
 
 
 # ✅ NEW: Изменение роли админа
@@ -343,9 +308,7 @@ async def change_role_start(callback: CallbackQuery):
 
     # Проверка разрешения
     if not await has_permission(callback.from_user.id, "manage_admins"):
-        await callback.answer(
-            "❌ Недостаточно прав\n\nТолько для Super Admin", show_alert=True
-        )
+        await callback.answer("❌ Недостаточно прав\n\nТолько для Super Admin", show_alert=True)
         return
 
     db_admins = await Database.get_all_admins()
@@ -368,16 +331,10 @@ async def change_role_start(callback: CallbackQuery):
         display_text = f"{role_badge} {display_text}"
 
         keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text=display_text, callback_data=f"select_admin_role:{user_id}"
-                )
-            ]
+            [InlineKeyboardButton(text=display_text, callback_data=f"select_admin_role:{user_id}")]
         )
 
-    keyboard.append(
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_admin_menu")]
-    )
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_admin_menu")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -429,11 +386,7 @@ async def select_admin_role(callback: CallbackQuery):
                 callback_data=f"confirm_role:{target_admin_id}:{ROLE_MODERATOR}",
             )
         ],
-        [
-            InlineKeyboardButton(
-                text="🔙 Назад", callback_data="change_role_start"
-            )
-        ],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="change_role_start")],
     ]
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -484,14 +437,10 @@ async def confirm_role_change(callback: CallbackQuery):
         # Считаем super_admin'ов
         all_admins = await Database.get_all_admins()
         super_admin_count = len(ADMIN_IDS)  # Статические
-        super_admin_count += sum(
-            1 for _, _, _, _, role in all_admins if role == ROLE_SUPER_ADMIN
-        )
+        super_admin_count += sum(1 for _, _, _, _, role in all_admins if role == ROLE_SUPER_ADMIN)
 
         if super_admin_count <= 1:
-            await callback.answer(
-                "❌ Нельзя понизить последнего Super Admin", show_alert=True
-            )
+            await callback.answer("❌ Нельзя понизить последнего Super Admin", show_alert=True)
             return
 
     # Обновляем роль
@@ -534,17 +483,13 @@ async def remove_admin_menu(callback: CallbackQuery):
 
     # ✅ Проверка разрешения
     if not await has_permission(callback.from_user.id, "manage_admins"):
-        await callback.answer(
-            "❌ Недостаточно прав\n\nТолько для Super Admin", show_alert=True
-        )
+        await callback.answer("❌ Недостаточно прав\n\nТолько для Super Admin", show_alert=True)
         return
 
     db_admins = await Database.get_all_admins()
 
     if not db_admins:
-        await callback.answer(
-            "ℹ️ Нет динамических админов для удаления", show_alert=True
-        )
+        await callback.answer("ℹ️ Нет динамических админов для удаления", show_alert=True)
         return
 
     keyboard = []
@@ -554,16 +499,10 @@ async def remove_admin_menu(callback: CallbackQuery):
             display_text += f" (@{username})"
 
         keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text=display_text, callback_data=f"remove_admin:{user_id}"
-                )
-            ]
+            [InlineKeyboardButton(text=display_text, callback_data=f"remove_admin:{user_id}")]
         )
 
-    keyboard.append(
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_admin_menu")]
-    )
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_admin_menu")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -602,9 +541,7 @@ async def remove_admin_confirm(callback: CallbackQuery):
     # Проверка последнего админа
     total_admins = len(ADMIN_IDS) + await Database.get_admin_count()
     if total_admins <= 1:
-        await callback.answer(
-            "❌ Нельзя удалить последнего админа", show_alert=True
-        )
+        await callback.answer("❌ Нельзя удалить последнего админа", show_alert=True)
         return
 
     # Удаляем
@@ -646,26 +583,10 @@ async def back_to_admin_menu(callback: CallbackQuery):
     # Пересоздаём меню
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📋 Список админов", callback_data="list_admins"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="➕ Добавить админа", callback_data="add_admin_start"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="➖ Удалить админа", callback_data="remove_admin_start"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🔄 Изменить роль", callback_data="change_role_start"
-                )
-            ],
+            [InlineKeyboardButton(text="📋 Список админов", callback_data="list_admins")],
+            [InlineKeyboardButton(text="➕ Добавить админа", callback_data="add_admin_start")],
+            [InlineKeyboardButton(text="➖ Удалить админа", callback_data="remove_admin_start")],
+            [InlineKeyboardButton(text="🔄 Изменить роль", callback_data="change_role_start")],
         ]
     )
 

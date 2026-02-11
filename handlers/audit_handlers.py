@@ -4,12 +4,7 @@ import logging
 from datetime import datetime
 
 from aiogram import F, Router
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.repositories.audit_repository import AuditRepository
 from utils.helpers import is_admin
@@ -29,10 +24,7 @@ async def audit_log_menu(message: Message):
 
     # Проверка разрешения
     if not await has_permission(message.from_user.id, "view_audit_log"):
-        await message.answer(
-            "❌ Недостаточно прав\n\n"
-            "Только для Super Admin"
-        )
+        await message.answer("❌ Недостаточно прав\n\n" "Только для Super Admin")
         return
 
     await show_audit_page(message, page=0)
@@ -85,9 +77,7 @@ async def show_audit_page(message: Message, page: int = 0):
         keyboard.append(nav_buttons)
 
     # Экспорт
-    keyboard.append(
-        [InlineKeyboardButton(text="💾 Export CSV", callback_data="audit_export")]
-    )
+    keyboard.append([InlineKeyboardButton(text="💾 Export CSV", callback_data="audit_export")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -141,9 +131,7 @@ async def audit_export_callback(callback: CallbackQuery):
     if success:
         from aiogram.types import FSInputFile
 
-        await callback.message.answer_document(
-            FSInputFile(filepath), caption="💾 Audit Log Export"
-        )
+        await callback.message.answer_document(FSInputFile(filepath), caption="💾 Audit Log Export")
         filepath.unlink()  # Удаляем после отправки
     else:
         await callback.message.answer("❌ Ошибка экспорта")

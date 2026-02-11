@@ -1,14 +1,10 @@
 """Обработчики управления услугами для администратора"""
 
 import logging
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database.models import Service
 from database.repositories.service_repository import ServiceRepository
@@ -22,6 +18,7 @@ router = Router()
 
 # === ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ УСЛУГАМИ ===
 
+
 @router.message(F.text == "⚙️ Управление услугами")
 async def services_menu(message: Message):
     """Главное меню управления услугами"""
@@ -31,37 +28,21 @@ async def services_menu(message: Message):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📋 Список услуг", callback_data="services_list"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="➕ Добавить услугу", callback_data="service_create_start"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🔄 Изменить порядок", callback_data="services_reorder"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="❌ Закрыть", callback_data="admin_cancel"
-                )
-            ],
+            [InlineKeyboardButton(text="📋 Список услуг", callback_data="services_list")],
+            [InlineKeyboardButton(text="➕ Добавить услугу", callback_data="service_create_start")],
+            [InlineKeyboardButton(text="🔄 Изменить порядок", callback_data="services_reorder")],
+            [InlineKeyboardButton(text="❌ Закрыть", callback_data="admin_cancel")],
         ]
     )
 
     await message.answer(
-        "⚙️ УПРАВЛЕНИЕ УСЛУГАМИ\n\n"
-        "Выберите действие:",
+        "⚙️ УПРАВЛЕНИЕ УСЛУГАМИ\n\n" "Выберите действие:",
         reply_markup=kb,
     )
 
 
 # === СПИСОК УСЛУГ ===
+
 
 @router.callback_query(F.data == "services_list")
 async def services_list_view(callback: CallbackQuery):
@@ -80,16 +61,11 @@ async def services_list_view(callback: CallbackQuery):
     for service in services:
         status_icon = "✅" if service.is_active else "🚫"
         text = f"{status_icon} {service.name} ({service.duration_minutes}мин, {service.price})"
-        keyboard.append([
-            InlineKeyboardButton(
-                text=text,
-                callback_data=f"service_view:{service.id}"
-            )
-        ])
+        keyboard.append(
+            [InlineKeyboardButton(text=text, callback_data=f"service_view:{service.id}")]
+        )
 
-    keyboard.append([
-        InlineKeyboardButton(text="🔙 Назад", callback_data="services_back")
-    ])
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="services_back")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -104,6 +80,7 @@ async def services_list_view(callback: CallbackQuery):
 
 
 # === ПРОСМОТР УСЛУГИ ===
+
 
 @router.callback_query(F.data.startswith("service_view:"))
 async def service_view(callback: CallbackQuery):
@@ -141,25 +118,16 @@ async def service_view(callback: CallbackQuery):
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✏️ Редактировать",
-                    callback_data=f"service_edit:{service_id}"
+                    text="✏️ Редактировать", callback_data=f"service_edit:{service_id}"
                 )
             ],
+            [InlineKeyboardButton(text=toggle_text, callback_data=f"service_toggle:{service_id}")],
             [
                 InlineKeyboardButton(
-                    text=toggle_text,
-                    callback_data=f"service_toggle:{service_id}"
+                    text="🗑 Удалить", callback_data=f"service_delete_confirm:{service_id}"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="🗑 Удалить",
-                    callback_data=f"service_delete_confirm:{service_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(text="🔙 К списку", callback_data="services_list")
-            ],
+            [InlineKeyboardButton(text="🔙 К списку", callback_data="services_list")],
         ]
     )
 
@@ -168,6 +136,7 @@ async def service_view(callback: CallbackQuery):
 
 
 # === СОЗДАНИЕ УСЛУГИ ===
+
 
 @router.callback_query(F.data == "service_create_start")
 async def service_create_start(callback: CallbackQuery, state: FSMContext):
@@ -201,10 +170,7 @@ async def service_create_name(message: Message, state: FSMContext):
 
     name = message.text.strip()
     if len(name) < 3 or len(name) > 100:
-        await message.answer(
-            "❌ Название должно быть от 3 до 100 символов\n\n"
-            "Попробуйте снова:"
-        )
+        await message.answer("❌ Название должно быть от 3 до 100 символов\n\n" "Попробуйте снова:")
         return
 
     await state.update_data(name=name)
@@ -228,8 +194,7 @@ async def service_create_description(message: Message, state: FSMContext):
 
     if description and len(description) > 500:
         await message.answer(
-            "❌ Описание слишком длинное (макс 500 символов)\n\n"
-            "Попробуйте снова:"
+            "❌ Описание слишком длинное (макс 500 символов)\n\n" "Попробуйте снова:"
         )
         return
 
@@ -256,8 +221,7 @@ async def service_create_duration(message: Message, state: FSMContext):
             raise ValueError()
     except ValueError:
         await message.answer(
-            "❌ Введите корректную длительность (15-480 минут)\n\n"
-            "Попробуйте снова:"
+            "❌ Введите корректную длительность (15-480 минут)\n\n" "Попробуйте снова:"
         )
         return
 
@@ -280,10 +244,7 @@ async def service_create_price(message: Message, state: FSMContext):
 
     price = message.text.strip()
     if len(price) > 50:
-        await message.answer(
-            "❌ Цена слишком длинная (макс 50 символов)\n\n"
-            "Попробуйте снова:"
-        )
+        await message.answer("❌ Цена слишком длинная (макс 50 символов)\n\n" "Попробуйте снова:")
         return
 
     data = await state.get_data()
@@ -295,13 +256,13 @@ async def service_create_price(message: Message, state: FSMContext):
     # Создаем услугу
     service = Service(
         id=0,  # Будет присвоен автоматически
-        name=data['name'],
-        description=data.get('description'),
-        duration_minutes=data['duration_minutes'],
+        name=data["name"],
+        description=data.get("description"),
+        duration_minutes=data["duration_minutes"],
         price=price,
         color=None,
         is_active=True,
-        display_order=max_order + 1
+        display_order=max_order + 1,
     )
 
     service_id = await ServiceRepository.create_service(service)
@@ -323,6 +284,7 @@ async def service_create_price(message: Message, state: FSMContext):
 
 # === РЕДАКТИРОВАНИЕ УСЛУГИ ===
 
+
 @router.callback_query(F.data.startswith("service_edit:"))
 async def service_edit_menu(callback: CallbackQuery):
     """Меню редактирования услуги"""
@@ -339,40 +301,26 @@ async def service_edit_menu(callback: CallbackQuery):
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✏️ Название",
-                    callback_data=f"edit_field:{service_id}:name"
+                    text="✏️ Название", callback_data=f"edit_field:{service_id}:name"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="✏️ Описание",
-                    callback_data=f"edit_field:{service_id}:description"
+                    text="✏️ Описание", callback_data=f"edit_field:{service_id}:description"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="✏️ Длительность",
-                    callback_data=f"edit_field:{service_id}:duration"
+                    text="✏️ Длительность", callback_data=f"edit_field:{service_id}:duration"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="✏️ Цена",
-                    callback_data=f"edit_field:{service_id}:price"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🔙 Назад",
-                    callback_data=f"service_view:{service_id}"
-                )
-            ],
+            [InlineKeyboardButton(text="✏️ Цена", callback_data=f"edit_field:{service_id}:price")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data=f"service_view:{service_id}")],
         ]
     )
 
     await callback.message.edit_text(
-        f"✏️ РЕДАКТИРОВАНИЕ УСЛУГИ #{service_id}\n\n"
-        "Выберите поле для изменения:",
+        f"✏️ РЕДАКТИРОВАНИЕ УСЛУГИ #{service_id}\n\n" "Выберите поле для изменения:",
         reply_markup=kb,
     )
     await callback.answer()
@@ -395,10 +343,10 @@ async def service_edit_field_start(callback: CallbackQuery, state: FSMContext):
         return
 
     field_names = {
-        'name': 'название',
-        'description': 'описание',
-        'duration': 'длительность (в минутах)',
-        'price': 'цена'
+        "name": "название",
+        "description": "описание",
+        "duration": "длительность (в минутах)",
+        "price": "цена",
     }
 
     await state.set_state(AdminStates.service_edit_value)
@@ -425,8 +373,8 @@ async def service_edit_field_save(message: Message, state: FSMContext):
         return
 
     data = await state.get_data()
-    service_id = data['service_id']
-    field = data['field']
+    service_id = data["service_id"]
+    field = data["field"]
     new_value = message.text.strip()
 
     # Получаем текущую услугу
@@ -438,23 +386,23 @@ async def service_edit_field_save(message: Message, state: FSMContext):
 
     # Валидация и обновление
     try:
-        if field == 'name':
+        if field == "name":
             if len(new_value) < 3 or len(new_value) > 100:
                 raise ValueError("Название должно быть от 3 до 100 символов")
             service.name = new_value
-        elif field == 'description':
-            if new_value == '-':
+        elif field == "description":
+            if new_value == "-":
                 service.description = None
             elif len(new_value) > 500:
                 raise ValueError("Описание слишком длинное (макс 500 символов)")
             else:
                 service.description = new_value
-        elif field == 'duration':
+        elif field == "duration":
             duration = int(new_value)
             if duration < 15 or duration > 480:
                 raise ValueError("Длительность должна быть от 15 до 480 минут")
             service.duration_minutes = duration
-        elif field == 'price':
+        elif field == "price":
             if len(new_value) > 50:
                 raise ValueError("Цена слишком длинная (макс 50 символов)")
             service.price = new_value
@@ -472,8 +420,7 @@ async def service_edit_field_save(message: Message, state: FSMContext):
 
     if success:
         await message.answer(
-            f"✅ Поле '{field}' успешно обновлено!\n\n"
-            f"Новое значение: {new_value}",
+            f"✅ Поле '{field}' успешно обновлено!\n\n" f"Новое значение: {new_value}",
             reply_markup=ADMIN_MENU,
         )
         logging.info(f"Admin {message.from_user.id} updated service {service_id} field {field}")
@@ -485,6 +432,7 @@ async def service_edit_field_save(message: Message, state: FSMContext):
 
 
 # === ПЕРЕКЛЮЧЕНИЕ АКТИВНОСТИ ===
+
 
 @router.callback_query(F.data.startswith("service_toggle:"))
 async def service_toggle_active(callback: CallbackQuery):
@@ -510,7 +458,9 @@ async def service_toggle_active(callback: CallbackQuery):
     if success:
         status = "включена" if service.is_active else "отключена"
         await callback.answer(f"✅ Услуга {status}")
-        logging.info(f"Admin {callback.from_user.id} toggled service {service_id} to {service.is_active}")
+        logging.info(
+            f"Admin {callback.from_user.id} toggled service {service_id} to {service.is_active}"
+        )
 
         # Обновляем view
         await service_view(callback)
@@ -519,6 +469,7 @@ async def service_toggle_active(callback: CallbackQuery):
 
 
 # === УДАЛЕНИЕ УСЛУГИ ===
+
 
 @router.callback_query(F.data.startswith("service_delete_confirm:"))
 async def service_delete_confirm(callback: CallbackQuery):
@@ -541,16 +492,10 @@ async def service_delete_confirm(callback: CallbackQuery):
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🗑 Да, удалить",
-                    callback_data=f"service_delete:{service_id}"
+                    text="🗑 Да, удалить", callback_data=f"service_delete:{service_id}"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="❌ Отмена",
-                    callback_data=f"service_view:{service_id}"
-                )
-            ],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"service_view:{service_id}")],
         ]
     )
 
@@ -592,6 +537,7 @@ async def service_delete_execute(callback: CallbackQuery):
 
 # === ИЗМЕНЕНИЕ ПОРЯДКА ===
 
+
 @router.callback_query(F.data == "services_reorder")
 async def services_reorder_menu(callback: CallbackQuery):
     """Меню изменения порядка услуг"""
@@ -602,28 +548,21 @@ async def services_reorder_menu(callback: CallbackQuery):
     services = await ServiceRepository.get_all_services(active_only=False)
 
     if len(services) < 2:
-        await callback.answer(
-            "❌ Для изменения порядка нужно минимум 2 услуги",
-            show_alert=True
-        )
+        await callback.answer("❌ Для изменения порядка нужно минимум 2 услуги", show_alert=True)
         return
 
     keyboard = []
     for service in services:
-        keyboard.append([
-            InlineKeyboardButton(
-                text=f"⬆️ {service.name}",
-                callback_data=f"reorder_up:{service.id}"
-            ),
-            InlineKeyboardButton(
-                text="⬇️",
-                callback_data=f"reorder_down:{service.id}"
-            )
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"⬆️ {service.name}", callback_data=f"reorder_up:{service.id}"
+                ),
+                InlineKeyboardButton(text="⬇️", callback_data=f"reorder_down:{service.id}"),
+            ]
+        )
 
-    keyboard.append([
-        InlineKeyboardButton(text="🔙 Назад", callback_data="services_back")
-    ])
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="services_back")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -663,12 +602,16 @@ async def services_reorder_execute(callback: CallbackQuery):
 
     if direction == "reorder_up" and current_index > 0:
         # Меняем местами с предыдущей
-        sorted_services[current_index], sorted_services[current_index - 1] = \
-            sorted_services[current_index - 1], sorted_services[current_index]
+        sorted_services[current_index], sorted_services[current_index - 1] = (
+            sorted_services[current_index - 1],
+            sorted_services[current_index],
+        )
     elif direction == "reorder_down" and current_index < len(sorted_services) - 1:
         # Меняем местами со следующей
-        sorted_services[current_index], sorted_services[current_index + 1] = \
-            sorted_services[current_index + 1], sorted_services[current_index]
+        sorted_services[current_index], sorted_services[current_index + 1] = (
+            sorted_services[current_index + 1],
+            sorted_services[current_index],
+        )
     else:
         await callback.answer("❌ Нельзя переместить дальше")
         return
@@ -687,20 +630,16 @@ async def services_reorder_execute(callback: CallbackQuery):
 
 # === НАВИГАЦИЯ ===
 
+
 @router.callback_query(F.data == "services_back")
 async def services_back(callback: CallbackQuery):
     """Возврат в главное меню услуг"""
     await callback.message.delete()
     await callback.message.answer(
-        "⚙️ УПРАВЛЕНИЕ УСЛУГАМИ\n\n"
-        "Выберите действие:",
+        "⚙️ УПРАВЛЕНИЕ УСЛУГАМИ\n\n" "Выберите действие:",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="📋 Список услуг", callback_data="services_list"
-                    )
-                ],
+                [InlineKeyboardButton(text="📋 Список услуг", callback_data="services_list")],
                 [
                     InlineKeyboardButton(
                         text="➕ Добавить услугу", callback_data="service_create_start"
@@ -711,11 +650,7 @@ async def services_back(callback: CallbackQuery):
                         text="🔄 Изменить порядок", callback_data="services_reorder"
                     )
                 ],
-                [
-                    InlineKeyboardButton(
-                        text="❌ Закрыть", callback_data="admin_cancel"
-                    )
-                ],
+                [InlineKeyboardButton(text="❌ Закрыть", callback_data="admin_cancel")],
             ]
         ),
     )

@@ -2,19 +2,20 @@
 
 import asyncio
 import sys
+
+from config import DATABASE_PATH
 from database.migrations.migration_manager import MigrationManager
 from database.migrations.versions.v004_add_services import AddServicesBackwardCompatible
-from config import DATABASE_PATH
 
 
 async def main():
     manager = MigrationManager(DATABASE_PATH)
-    
+
     # Регистрируем все миграции
     manager.register(AddServicesBackwardCompatible)
-    
+
     command = sys.argv[1] if len(sys.argv) > 1 else "migrate"
-    
+
     if command == "migrate":
         version = int(sys.argv[2]) if len(sys.argv) > 2 else None
         await manager.migrate(version)

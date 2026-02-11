@@ -37,31 +37,23 @@ MAIN_MENU = ReplyKeyboardMarkup(
 
 def create_services_keyboard(services: list) -> InlineKeyboardMarkup:
     """Создает клавиатуру выбора услуг
-    
+
     Args:
         services: Список объектов Service
-        
+
     Returns:
         InlineKeyboardMarkup с кнопками выбора услуг
     """
     keyboard = []
-    
+
     for service in services:
-        service_text = (
-            f"{service.name}\n"
-            f"⏱ {service.duration_minutes} мин | 💰 {service.price}"
+        service_text = f"{service.name}\n" f"⏱ {service.duration_minutes} мин | 💰 {service.price}"
+        keyboard.append(
+            [InlineKeyboardButton(text=service_text, callback_data=f"select_service:{service.id}")]
         )
-        keyboard.append([
-            InlineKeyboardButton(
-                text=service_text,
-                callback_data=f"select_service:{service.id}"
-            )
-        ])
-    
-    keyboard.append([
-        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking_flow")
-    ])
-    
+
+    keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking_flow")])
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -69,7 +61,7 @@ async def create_month_calendar(year: int, month: int) -> InlineKeyboardMarkup:
     """Календарь с навигацией по месяцам (с блокировкой прошедших дат)"""
     keyboard = []
     today = now_local()
-    
+
     # Навигация
     prev_month = month - 1
     prev_year = year
@@ -84,11 +76,8 @@ async def create_month_calendar(year: int, month: int) -> InlineKeyboardMarkup:
         next_year += 1
 
     # Ограничение навигации: не позволяем уйти в прошлое
-    can_go_prev = (
-        prev_year > today.year or 
-        (prev_year == today.year and prev_month >= today.month)
-    )
-    
+    can_go_prev = prev_year > today.year or (prev_year == today.year and prev_month >= today.month)
+
     # Ограничение: максимум N месяцев вперёд
     max_year = today.year
     max_month = today.month + CALENDAR_MAX_MONTHS_AHEAD
@@ -98,25 +87,18 @@ async def create_month_calendar(year: int, month: int) -> InlineKeyboardMarkup:
         if max_month == 0:
             max_month = 12
             max_year -= 1
-    
-    can_go_next = (
-        next_year < max_year or 
-        (next_year == max_year and next_month <= max_month)
-    )
+
+    can_go_next = next_year < max_year or (next_year == max_year and next_month <= max_month)
 
     # Кнопки навигации
     prev_button = (
-        InlineKeyboardButton(
-            text="◀️", callback_data=f"cal:{prev_year}-{prev_month:02d}"
-        )
+        InlineKeyboardButton(text="◀️", callback_data=f"cal:{prev_year}-{prev_month:02d}")
         if can_go_prev
         else InlineKeyboardButton(text=" ", callback_data="ignore")
     )
-    
+
     next_button = (
-        InlineKeyboardButton(
-            text="▶️", callback_data=f"cal:{next_year}-{next_month:02d}"
-        )
+        InlineKeyboardButton(text="▶️", callback_data=f"cal:{next_year}-{next_month:02d}")
         if can_go_next
         else InlineKeyboardButton(text=" ", callback_data="ignore")
     )
@@ -124,19 +106,14 @@ async def create_month_calendar(year: int, month: int) -> InlineKeyboardMarkup:
     keyboard.append(
         [
             prev_button,
-            InlineKeyboardButton(
-                text=f"{MONTH_NAMES[month-1]} {year}", callback_data="ignore"
-            ),
+            InlineKeyboardButton(text=f"{MONTH_NAMES[month-1]} {year}", callback_data="ignore"),
             next_button,
         ]
     )
 
     # Дни недели
     keyboard.append(
-        [
-            InlineKeyboardButton(text=day, callback_data="ignore")
-            for day in DAY_NAMES_SHORT
-        ]
+        [InlineKeyboardButton(text=day, callback_data="ignore") for day in DAY_NAMES_SHORT]
     )
 
     # Получаем все статусы одним запросом (ОПТИМИЗАЦИЯ!)
@@ -161,14 +138,10 @@ async def create_month_calendar(year: int, month: int) -> InlineKeyboardMarkup:
                 else:
                     # Используем закэшированный статус
                     status = month_statuses.get(date_str, "🟢")
-                    
+
                     # ✅ УЛУЧШЕНО: Полностью занятые дни некликабельны
                     if status == "🔴":
-                        row.append(
-                            InlineKeyboardButton(
-                                text=f"{day}🔴", callback_data="ignore"
-                            )
-                        )
+                        row.append(InlineKeyboardButton(text=f"{day}🔴", callback_data="ignore"))
                     else:
                         row.append(
                             InlineKeyboardButton(
@@ -177,9 +150,7 @@ async def create_month_calendar(year: int, month: int) -> InlineKeyboardMarkup:
                         )
         keyboard.append(row)
 
-    keyboard.append(
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking_flow")]
-    )
+    keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking_flow")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -187,12 +158,12 @@ async def create_time_slots(
     date_str: str, state: FSMContext = None, service=None
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Слоты времени с учетом длительности услуги
-    
+
     Args:
         date_str: Дата в формате YYYY-MM-DD
         state: FSM context для получения service_id
         service: Опциональный объект Service (если уже получен)
-    
+
     Returns:
         Tuple[текст_сообщения, клавиатура]
     """
@@ -203,15 +174,12 @@ async def create_time_slots(
 
     # ✅ УЛУЧШЕНО: Проверка что дата не в прошлом
     if date_obj.date() < now.date():
-        error_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 К календарю", callback_data="back_calendar")]
-        ])
-        return (
-            "❌ ОШИБКА\n\n"
-            "Эта дата уже прошла.\n"
-            "Выберите дату из календаря.",
-            error_kb
+        error_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 К календарю", callback_data="back_calendar")]
+            ]
         )
+        return ("❌ ОШИБКА\n\n" "Эта дата уже прошла.\n" "Выберите дату из календаря.", error_kb)
 
     # ✅ КРИТИЧНО: Получаем service_id из state если не передан service
     if not service and state:
@@ -219,7 +187,7 @@ async def create_time_slots(
         service_id = data.get("service_id")
         if service_id:
             service = await ServiceRepository.get_service_by_id(service_id)
-    
+
     # Длительность услуги в минутах (по умолчанию 60)
     duration_minutes = service.duration_minutes if service else 60
 
@@ -232,7 +200,7 @@ async def create_time_slots(
     # ✅ КРИТИЧНО: Проверяем слоты с учетом длительности услуги
     for hour in range(WORK_HOURS_START, WORK_HOURS_END):
         time_str = f"{hour:02d}:00"
-        
+
         # Создаем datetime для текущего слота
         slot_datetime_naive = datetime.combine(
             date_obj.date(), datetime.strptime(time_str, "%H:%M").time()
@@ -245,7 +213,7 @@ async def create_time_slots(
 
         # ✅ КРИТИЧНО: Проверяем что свободны ВСЕ часы для длительности услуги
         end_datetime = slot_datetime + timedelta(minutes=duration_minutes)
-        
+
         # Проверяем что слот не выходит за рабочие часы
         end_hour = end_datetime.hour + (1 if end_datetime.minute > 0 else 0)
         if end_hour > WORK_HOURS_END:
@@ -255,14 +223,13 @@ async def create_time_slots(
         is_free = True
         for occupied_time, occupied_duration in occupied_slots:
             occupied_datetime_naive = datetime.combine(
-                date_obj.date(),
-                datetime.strptime(occupied_time, "%H:%M").time()
+                date_obj.date(), datetime.strptime(occupied_time, "%H:%M").time()
             )
             occupied_datetime = TIMEZONE.localize(occupied_datetime_naive)
-            
+
             # ✅ КРИТИЧНО: Используем РЕАЛЬНУЮ duration из БД!
             occupied_end = occupied_datetime + timedelta(minutes=occupied_duration)
-            
+
             # Проверяем пересечение интервалов
             # [slot_start, slot_end) пересекается с [occupied_start, occupied_end)
             if slot_datetime < occupied_end and end_datetime > occupied_datetime:
@@ -290,19 +257,11 @@ async def create_time_slots(
         else:
             callback_data = "ignore"
 
-        keyboard[-1].append(
-            InlineKeyboardButton(text=button_text, callback_data=callback_data)
-        )
+        keyboard[-1].append(InlineKeyboardButton(text=button_text, callback_data=callback_data))
 
     # ✅ УЛУЧШЕНО: Если нет свободных слотов
     if free_count == 0:
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    text="😞 Все слоты заняты", callback_data="ignore"
-                )
-            ]
-        ]
+        keyboard = [[InlineKeyboardButton(text="😞 Все слоты заняты", callback_data="ignore")]]
         reason = "прошли или заняты" if is_today else "заняты"
         text = (
             f"❌ ВСЕ СЛОТЫ {reason.upper()}\n\n"
@@ -312,12 +271,12 @@ async def create_time_slots(
     else:
         # Формируем текст
         day_name = DAY_NAMES[date_obj.weekday()]
-        
+
         # Добавляем информацию об услуге если есть
         service_info = ""
         if service:
             service_info = f"\n📝 {service.name} ({service.duration_minutes} мин)\n"
-        
+
         text = (
             "📍 ШАГ 3 из 4: Выберите время\n\n"
             f"📅 {date_obj.strftime('%d.%m.%Y')} ({day_name}){service_info}"
@@ -329,9 +288,7 @@ async def create_time_slots(
 
         text += "\n✅ = свободно | ❌ = занято"
 
-    keyboard.append(
-        [InlineKeyboardButton(text="🔙 К календарю", callback_data="back_calendar")]
-    )
+    keyboard.append([InlineKeyboardButton(text="🔙 К календарю", callback_data="back_calendar")])
 
     return text, InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -340,16 +297,8 @@ def create_onboarding_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для онбординга"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🎓 Как это работает?", callback_data="onboarding_tour"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🚀 Записаться сразу", callback_data="skip_onboarding"
-                )
-            ],
+            [InlineKeyboardButton(text="🎓 Как это работает?", callback_data="onboarding_tour")],
+            [InlineKeyboardButton(text="🚀 Записаться сразу", callback_data="skip_onboarding")],
         ]
     )
 
@@ -364,21 +313,9 @@ def create_confirmation_keyboard(date_str: str, time_str: str) -> InlineKeyboard
                     callback_data=f"confirm:{date_str}:{time_str}",
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="📅 Изменить дату", callback_data="back_calendar"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="◀️ Другое время", callback_data=f"day:{date_str}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="❌ Отменить запись", callback_data="cancel_booking_flow"
-                )
-            ],
+            [InlineKeyboardButton(text="📅 Изменить дату", callback_data="back_calendar")],
+            [InlineKeyboardButton(text="◀️ Другое время", callback_data=f"day:{date_str}")],
+            [InlineKeyboardButton(text="❌ Отменить запись", callback_data="cancel_booking_flow")],
         ]
     )
 
@@ -392,10 +329,6 @@ def create_cancel_confirmation_keyboard(booking_id: int) -> InlineKeyboardMarkup
                     text="✅ Да, отменить", callback_data=f"cancel_confirm:{booking_id}"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="❌ Нет, оставить", callback_data="cancel_decline"
-                )
-            ],
+            [InlineKeyboardButton(text="❌ Нет, оставить", callback_data="cancel_decline")],
         ]
     )

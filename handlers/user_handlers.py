@@ -64,9 +64,7 @@ async def start_cmd(message: Message, state: FSMContext):
                 reply_markup=MAIN_MENU,
             )
         else:
-            await message.answer(
-                "С возвращением! 👋\n\nВыберите действие:", reply_markup=MAIN_MENU
-            )
+            await message.answer("С возвращением! 👋\n\nВыберите действие:", reply_markup=MAIN_MENU)
 
 
 @router.callback_query(F.data == "onboarding_tour")
@@ -104,7 +102,7 @@ async def about_service(message: Message):
     """Информация о сервисе - получение из активных услуг"""
     # ✅ ИСПРАВЛЕНО: получаем информацию из активных услуг
     services = await ServiceRepository.get_all_services(active_only=True)
-    
+
     if not services:
         await message.answer(
             "ℹ️ ИНФОРМАЦИЯ О СЕРВИСЕ\n\n"
@@ -113,10 +111,10 @@ async def about_service(message: Message):
             reply_markup=MAIN_MENU,
         )
         return
-    
+
     # Формируем список услуг
     text = "ℹ️ ДОСТУПНЫЕ УСЛУГИ\n\n"
-    
+
     for i, service in enumerate(services, 1):
         text += f"{i}. 📝 {service.name}\n"
         text += f"   ⏱ Длительность: {service.duration_minutes} мин\n"
@@ -124,13 +122,13 @@ async def about_service(message: Message):
         if service.description:
             text += f"   📄 {service.description}\n"
         text += "\n"
-    
+
     text += (
         f"🔔 Напоминание за {CANCELLATION_HOURS}ч до встречи\n"
         f"❌ Отмена возможна за {CANCELLATION_HOURS}ч\n"
         f"📊 Лимит одновременных записей: {MAX_BOOKINGS_PER_USER}"
     )
-    
+
     await message.answer(text, reply_markup=MAIN_MENU)
 
 
@@ -138,6 +136,7 @@ async def about_service(message: Message):
 async def booking_button(message: Message, state: FSMContext):
     """Обработчик кнопки Записаться"""
     from handlers.booking_handlers import booking_start
+
     await booking_start(message, state)
 
 
@@ -145,6 +144,7 @@ async def booking_button(message: Message, state: FSMContext):
 async def my_bookings_button(message: Message):
     """Обработчик кнопки Мои записи"""
     from handlers.booking_handlers import my_bookings
+
     await my_bookings(message)
 
 
@@ -158,7 +158,5 @@ async def ignore_callback(callback: CallbackQuery):
 async def unknown_message(message: Message):
     """Обработчик неизвестных сообщений"""
     await message.answer(
-        "🤔 Я не понимаю это сообщение.\n\n"
-        "Используйте кнопки меню 👇",
-        reply_markup=MAIN_MENU
+        "🤔 Я не понимаю это сообщение.\n\n" "Используйте кнопки меню 👇", reply_markup=MAIN_MENU
     )

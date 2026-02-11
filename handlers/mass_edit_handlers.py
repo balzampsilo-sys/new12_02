@@ -5,12 +5,7 @@ from datetime import datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import WORK_HOURS_END, WORK_HOURS_START
 from database.queries import Database
@@ -32,28 +27,20 @@ async def mass_edit_menu(message: Message):
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🕒 Массовый перенос времени",
-                    callback_data="mass_edit_time"
+                    text="🕒 Массовый перенос времени", callback_data="mass_edit_time"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🔄 Массовая смена услуги",
-                    callback_data="mass_edit_service"
+                    text="🔄 Массовая смена услуги", callback_data="mass_edit_service"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="📋 Просмотр записей",
-                    callback_data="mass_edit_view"
-                )
-            ],
+            [InlineKeyboardButton(text="📋 Просмотр записей", callback_data="mass_edit_view")],
         ]
     )
 
     await message.answer(
-        "📝 МАССОВОЕ РЕДАКТИРОВАНИЕ\n\n"
-        "Выберите операцию:",
+        "📝 МАССОВОЕ РЕДАКТИРОВАНИЕ\n\n" "Выберите операцию:",
         reply_markup=kb,
     )
 
@@ -94,16 +81,13 @@ async def mass_edit_time_date(message: Message, state: FSMContext):
         date_obj = datetime.strptime(message.text, "%Y-%m-%d")
         if date_obj.date() < now_local().date():
             await message.answer(
-                "❌ Нельзя редактировать прошедшие даты\n\n"
-                "Введите корректную дату:"
+                "❌ Нельзя редактировать прошедшие даты\n\n" "Введите корректную дату:"
             )
             return
         date_str = message.text
     except ValueError:
         await message.answer(
-            "❌ Неверный формат даты\n\n"
-            "Используйте формат ГГГГ-ММ-ДД\n"
-            "Например: 2026-02-15"
+            "❌ Неверный формат даты\n\n" "Используйте формат ГГГГ-ММ-ДД\n" "Например: 2026-02-15"
         )
         return
 
@@ -112,10 +96,7 @@ async def mass_edit_time_date(message: Message, state: FSMContext):
 
     if not bookings:
         await state.clear()
-        await message.answer(
-            f"ℹ️ Нет записей на {date_str}",
-            reply_markup=ADMIN_MENU
-        )
+        await message.answer(f"ℹ️ Нет записей на {date_str}", reply_markup=ADMIN_MENU)
         return
 
     await state.update_data(edit_date=date_str, bookings_count=len(bookings))
@@ -152,15 +133,12 @@ async def mass_edit_time_shift(message: Message, state: FSMContext):
         shift_hours = int(message.text)
         if abs(shift_hours) > 12:
             await message.answer(
-                "❌ Сдвиг не может быть больше ±12 часов\n\n"
-                "Введите корректное значение:"
+                "❌ Сдвиг не может быть больше ±12 часов\n\n" "Введите корректное значение:"
             )
             return
     except ValueError:
         await message.answer(
-            "❌ Неверный формат\n\n"
-            "Введите число с + или -\n"
-            "Например: +2, -1, +3"
+            "❌ Неверный формат\n\n" "Введите число с + или -\n" "Например: +2, -1, +3"
         )
         return
 
@@ -256,14 +234,13 @@ async def mass_edit_view(callback: CallbackQuery):
     bookings = await Database.get_week_schedule(start_date, days=7)
 
     if not bookings:
-        await callback.message.edit_text(
-            "ℹ️ Нет записей на ближайшую неделю"
-        )
+        await callback.message.edit_text("ℹ️ Нет записей на ближайшую неделю")
         await callback.answer()
         return
 
     # Группируем по датам
     from collections import defaultdict
+
     by_date = defaultdict(list)
     for date, time, username, service in bookings:
         by_date[date].append((time, username, service))
@@ -281,14 +258,7 @@ async def mass_edit_view(callback: CallbackQuery):
         text += "\n"
 
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔙 Назад",
-                    callback_data="back_to_mass_edit"
-                )
-            ]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_mass_edit")]]
     )
 
     await callback.message.edit_text(text, reply_markup=kb)
@@ -302,28 +272,20 @@ async def back_to_mass_edit(callback: CallbackQuery):
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🕒 Массовый перенос времени",
-                    callback_data="mass_edit_time"
+                    text="🕒 Массовый перенос времени", callback_data="mass_edit_time"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🔄 Массовая смена услуги",
-                    callback_data="mass_edit_service"
+                    text="🔄 Массовая смена услуги", callback_data="mass_edit_service"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="📋 Просмотр записей",
-                    callback_data="mass_edit_view"
-                )
-            ],
+            [InlineKeyboardButton(text="📋 Просмотр записей", callback_data="mass_edit_view")],
         ]
     )
 
     await callback.message.edit_text(
-        "📝 МАССОВОЕ РЕДАКТИРОВАНИЕ\n\n"
-        "Выберите операцию:",
+        "📝 МАССОВОЕ РЕДАКТИРОВАНИЕ\n\n" "Выберите операцию:",
         reply_markup=kb,
     )
     await callback.answer()

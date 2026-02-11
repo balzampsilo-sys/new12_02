@@ -22,11 +22,11 @@ from services.notification_service import NotificationService
 from utils.helpers import now_local
 from utils.validators import validate_id
 
-
 router = Router()
 
 
 # === НОВЫЙ ОБРАБОТЧИК: НАЧАЛО ЗАПИСИ С ВЫБОРОМ УСЛУГИ ===
+
 
 @router.message(F.text == "📅 Записаться")
 async def booking_start(message: Message, state: FSMContext):
@@ -51,8 +51,7 @@ async def booking_start(message: Message, state: FSMContext):
     if not services:
         # Нет активных услуг
         await message.answer(
-            "⚠️ УСЛУГИ ВРЕМЕННО НЕДОСТУПНЫ\n\n"
-            "Обратитесь к администратору.",
+            "⚠️ УСЛУГИ ВРЕМЕННО НЕДОСТУПНЫ\n\n" "Обратитесь к администратору.",
             reply_markup=MAIN_MENU,
         )
         await Database.log_event(message.from_user.id, "booking_failed_no_services")
@@ -69,6 +68,7 @@ async def booking_start(message: Message, state: FSMContext):
 
 
 # === НОВЫЙ ОБРАБОТЧИК: ВЫБОР УСЛУГИ ===
+
 
 @router.callback_query(F.data.startswith("select_service:"))
 async def select_service(callback: CallbackQuery, state: FSMContext):
@@ -118,11 +118,13 @@ async def select_service(callback: CallbackQuery, state: FSMContext):
 
 # === ОБНОВЛЕННЫЙ ОБРАБОТЧИК: ПОДТВЕРЖДЕНИЕ ВРЕМЕНИ ===
 
+
 @router.callback_query(F.data.startswith("time:"))
 async def confirm_time(callback: CallbackQuery, state: FSMContext):
     """Подтверждение времени с информацией об услуге"""
     from datetime import datetime
-    from config import TIMEZONE, WORK_HOURS_START, WORK_HOURS_END
+
+    from config import TIMEZONE, WORK_HOURS_END, WORK_HOURS_START
     from utils.validators import parse_callback_data, validate_booking_data, validate_work_hours
 
     # Валидация
@@ -155,15 +157,14 @@ async def confirm_time(callback: CallbackQuery, state: FSMContext):
     # Проверяем рабочие часы
     if not validate_work_hours(time_obj.hour, WORK_HOURS_START, WORK_HOURS_END):
         await callback.answer(
-            f"❌ Время вне рабочих часов ({WORK_HOURS_START}-{WORK_HOURS_END})",
-            show_alert=True
+            f"❌ Время вне рабочих часов ({WORK_HOURS_START}-{WORK_HOURS_END})", show_alert=True
         )
         await state.clear()
         return
 
     # ✅ НОВОЕ: Получаем информацию об услуге
     data = await state.get_data()
-    service_id = data.get('service_id')
+    service_id = data.get("service_id")
 
     service_info = ""
     if service_id:
@@ -189,11 +190,13 @@ async def confirm_time(callback: CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         import logging
+
         logging.error(f"Error editing message in confirm_time: {e}")
         await callback.answer("❌ Ошибка")
 
 
 # === ОБНОВЛЕННЫЙ ОБРАБОТЧИК: ФИНАЛЬНОЕ БРОНИРОВАНИЕ ===
+
 
 @router.callback_query(F.data.startswith("confirm:"))
 async def book_time(
@@ -203,11 +206,17 @@ async def book_time(
     notification_service: NotificationService,
 ):
     """Финальное бронирование с передачей service_id"""
-    from datetime import datetime
-    from config import ERROR_LIMIT_EXCEEDED, ERROR_NO_SERVICES, ERROR_SERVICE_UNAVAILABLE, ERROR_SLOT_TAKEN
-    from utils.validators import parse_callback_data, validate_booking_data
-    from keyboards.user_keyboards import create_time_slots
     import logging
+    from datetime import datetime
+
+    from config import (
+        ERROR_LIMIT_EXCEEDED,
+        ERROR_NO_SERVICES,
+        ERROR_SERVICE_UNAVAILABLE,
+        ERROR_SLOT_TAKEN,
+    )
+    from keyboards.user_keyboards import create_time_slots
+    from utils.validators import parse_callback_data, validate_booking_data
 
     # Валидация
     result = parse_callback_data(callback.data, 3)
@@ -228,7 +237,7 @@ async def book_time(
 
     # ✅ КРИТИЧНО: Получаем service_id из state
     data = await state.get_data()
-    service_id = data.get('service_id')
+    service_id = data.get("service_id")
 
     # Получаем информацию об услуге для отображения
     service_info = ""
@@ -236,9 +245,7 @@ async def book_time(
         service = await ServiceRepository.get_service_by_id(service_id)
         if service:
             service_info = (
-                f"📝 {service.name}\n"
-                f"⏱ {service.duration_minutes} мин\n"
-                f"💰 {service.price}\n"
+                f"📝 {service.name}\n" f"⏱ {service.duration_minutes} мин\n" f"💰 {service.price}\n"
             )
 
     # ✅ КРИТИЧНО: Передаем service_id в create_booking
@@ -287,8 +294,7 @@ async def book_time(
                 try:
                     text, kb = await create_time_slots(date_str, state)
                     await callback.message.edit_text(
-                        "❌ Не удалось записать\n\nВыберите другое время:",
-                        reply_markup=kb
+                        "❌ Не удалось записать\n\nВыберите другое время:", reply_markup=kb
                     )
                 except Exception as e:
                     logging.error(f"Error showing time slots after failed booking: {e}")

@@ -46,7 +46,7 @@ class BookingRepository(BaseRepository):
     @staticmethod
     async def get_occupied_slots_for_day(date_str: str) -> List[Tuple[str, int]]:
         """Получить все занятые слоты за день с длительностью
-        
+
         Returns:
             List[Tuple[time_str, duration_minutes]]
             Например: [('10:00', 60), ('14:00', 90), ('16:00', 120)]
@@ -61,7 +61,7 @@ class BookingRepository(BaseRepository):
                     FROM bookings b
                     LEFT JOIN services s ON b.service_id = s.id
                     WHERE b.date = ?""",
-                    (date_str,)
+                    (date_str,),
                 ) as cursor:
                     bookings = await cursor.fetchall()
                     if bookings:
@@ -69,13 +69,12 @@ class BookingRepository(BaseRepository):
 
                 # Заблокированные (длительность 60 мин по умолчанию)
                 async with db.execute(
-                    "SELECT time FROM blocked_slots WHERE date = ?",
-                    (date_str,)
+                    "SELECT time FROM blocked_slots WHERE date = ?", (date_str,)
                 ) as cursor:
                     blocked = await cursor.fetchall()
                     if blocked:
                         occupied.extend((time, 60) for (time,) in blocked)
-                        
+
         except Exception as e:
             logging.error(f"Error getting occupied slots for {date_str}: {e}")
 
@@ -127,7 +126,7 @@ class BookingRepository(BaseRepository):
     @staticmethod
     async def get_user_bookings(user_id: int) -> List[Tuple]:
         """Получить активные (будущие) записи пользователя С ИНФОРМАЦИЕЙ ОБ УСЛУГЕ
-        
+
         Returns:
             List[Tuple[
                 booking_id: int,
@@ -143,10 +142,10 @@ class BookingRepository(BaseRepository):
         """
         try:
             now = now_local()
-            
+
             # ✅ P2: ДОБАВЛЕН JOIN с services для получения полной информации
             bookings = await BookingRepository._execute_query(
-                """SELECT 
+                """SELECT
                     b.id,
                     b.date,
                     b.time,
@@ -171,10 +170,8 @@ class BookingRepository(BaseRepository):
             future_bookings = []
             for booking in bookings:
                 booking_id, date_str, time_str = booking[0], booking[1], booking[2]
-                
-                booking_dt_naive = datetime.strptime(
-                    f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
-                )
+
+                booking_dt_naive = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
                 booking_dt = TIMEZONE.localize(booking_dt_naive)
 
                 if booking_dt >= now:
@@ -200,9 +197,7 @@ class BookingRepository(BaseRepository):
     async def can_cancel_booking(date_str: str, time_str: str) -> Tuple[bool, float]:
         """Проверить возможность отмены (>24ч)"""
         try:
-            booking_dt_naive = datetime.strptime(
-                f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
-            )
+            booking_dt_naive = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
             booking_dt = TIMEZONE.localize(booking_dt_naive)
             now = now_local()
             hours_until = (booking_dt - now).total_seconds() / 3600
@@ -212,9 +207,7 @@ class BookingRepository(BaseRepository):
             return False, 0.0
 
     @staticmethod
-    async def get_booking_by_id(
-        booking_id: int, user_id: int
-    ) -> Optional[Tuple[str, str, str]]:
+    async def get_booking_by_id(booking_id: int, user_id: int) -> Optional[Tuple[str, str, str]]:
         """Получить запись по ID"""
         return await BookingRepository._execute_query(
             "SELECT date, time, username FROM bookings WHERE id=? AND user_id=?",
@@ -237,9 +230,7 @@ class BookingRepository(BaseRepository):
                 if deleted:
                     logging.info(f"Booking {booking_id} deleted by user {user_id}")
                 else:
-                    logging.warning(
-                        f"Booking {booking_id} not found for user {user_id}"
-                    )
+                    logging.warning(f"Booking {booking_id} not found for user {user_id}")
 
                 return deleted
         except Exception as e:
@@ -251,9 +242,7 @@ class BookingRepository(BaseRepository):
         """Удалить старые записи"""
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
-                cursor = await db.execute(
-                    "DELETE FROM bookings WHERE date < ?", (before_date,)
-                )
+                cursor = await db.execute("DELETE FROM bookings WHERE date < ?", (before_date,))
                 await db.commit()
                 deleted_count = cursor.rowcount
                 logging.info(f"Cleaned up {deleted_count} old bookings")
@@ -265,18 +254,19 @@ class BookingRepository(BaseRepository):
     @staticmethod
     async def get_week_schedule(start_date: str, days: int = 7) -> List[Tuple]:
         """Получить расписание на N дней с услугами
-        
+
         Returns:
             List[Tuple[date, time, username, service_name, duration, price]]
         """
         try:
-            end_date = (
-                datetime.strptime(start_date, "%Y-%m-%d") + timedelta(days=days)
-            ).strftime("%Y-%m-%d")
+            end_date = (datetime.strptime(start_date, "%Y-%m-%d") + timedelta(days=days)).strftime(
+                "%Y-%m-%d"
+            )
 
             # ✅ P2: ДОБАВЛЕНА длительность и цена
-            return await BookingRepository._execute_query(
-                """SELECT 
+            return (
+                await BookingRepository._execute_query(
+                    """SELECT
                     b.date,
                     b.time,
                     b.username,
@@ -287,17 +277,17 @@ class BookingRepository(BaseRepository):
                 LEFT JOIN services s ON b.service_id = s.id
                 WHERE b.date >= ? AND b.date <= ?
                 ORDER BY b.date, b.time""",
-                (start_date, end_date),
-                fetch_all=True,
-            ) or []
+                    (start_date, end_date),
+                    fetch_all=True,
+                )
+                or []
+            )
         except Exception as e:
             logging.error(f"Error getting week schedule: {e}")
             return []
 
     @staticmethod
-    async def block_slot(
-        date_str: str, time_str: str, admin_id: int, reason: str = None
-    ) -> bool:
+    async def block_slot(date_str: str, time_str: str, admin_id: int, reason: str = None) -> bool:
         """Заблокировать слот"""
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -322,15 +312,15 @@ class BookingRepository(BaseRepository):
     ) -> Tuple[bool, List[Dict]]:
         """
         Заблокировать слот с уведомлением пользователей.
-        
+
         Если слот занят - удаляет бронь и возвращает данные для уведомления.
-        
+
         Args:
             date_str: Дата в формате YYYY-MM-DD
             time_str: Время в формате HH:MM
             admin_id: ID администратора
             reason: Причина блокировки
-            
+
         Returns:
             Tuple[success: bool, cancelled_users: List[Dict]]
             cancelled_users = [{
@@ -351,22 +341,23 @@ class BookingRepository(BaseRepository):
                     existing_bookings = await cursor.fetchall()
 
                 cancelled_users = []
-                
+
                 # Если есть записи - удаляем их
                 if existing_bookings:
                     for user_id, username in existing_bookings:
-                        cancelled_users.append({
-                            'user_id': user_id,
-                            'username': username or f"ID{user_id}",
-                            'date': date_str,
-                            'time': time_str,
-                            'reason': reason
-                        })
-                    
+                        cancelled_users.append(
+                            {
+                                "user_id": user_id,
+                                "username": username or f"ID{user_id}",
+                                "date": date_str,
+                                "time": time_str,
+                                "reason": reason,
+                            }
+                        )
+
                     # Удаляем бронь
                     await db.execute(
-                        "DELETE FROM bookings WHERE date=? AND time=?",
-                        (date_str, time_str)
+                        "DELETE FROM bookings WHERE date=? AND time=?", (date_str, time_str)
                     )
                     logging.info(
                         f"Cancelled {len(cancelled_users)} booking(s) for slot {date_str} {time_str}"
@@ -379,14 +370,14 @@ class BookingRepository(BaseRepository):
                     (date_str, time_str, reason, admin_id, now_local().isoformat()),
                 )
                 await db.commit()
-                
+
                 logging.info(
                     f"Slot {date_str} {time_str} blocked by admin {admin_id} "
                     f"with {len(cancelled_users)} cancellations"
                 )
-                
+
                 return True, cancelled_users
-                
+
         except aiosqlite.IntegrityError:
             logging.warning(f"Slot {date_str} {time_str} already blocked")
             return False, []
@@ -422,6 +413,4 @@ class BookingRepository(BaseRepository):
             query = "SELECT date, time, reason FROM blocked_slots ORDER BY date, time"
             params = ()
 
-        return (
-            await BookingRepository._execute_query(query, params, fetch_all=True) or []
-        )
+        return await BookingRepository._execute_query(query, params, fetch_all=True) or []

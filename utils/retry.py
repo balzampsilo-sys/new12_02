@@ -13,7 +13,7 @@ def async_retry(
     exceptions: tuple = (Exception,),
 ):
     """Декоратор для повторных попыток асинхронных функций
-    
+
     Args:
         max_attempts: Максимальное количество попыток
         delay: Начальная задержка между попытками (секунды)
@@ -33,9 +33,7 @@ def async_retry(
                 except exceptions as e:
                     last_exception = e
                     if attempt == max_attempts:
-                        logging.error(
-                            f"Failed after {max_attempts} attempts: {func.__name__}"
-                        )
+                        logging.error(f"Failed after {max_attempts} attempts: {func.__name__}")
                         raise
 
                     logging.warning(

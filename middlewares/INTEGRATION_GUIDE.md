@@ -155,27 +155,27 @@ async def start_bot():
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
+
     # Инициализация
     bot = Bot(token=BOT_TOKEN)
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
-    
+
     # БД
     await Database.init_db()
-    
+
     # ✅ P3: MIDDLEWARE ДЛЯ ОЧИСТКИ СТАРЫХ СООБЩЕНИЙ
     dp.callback_query.middleware(MessageCleanupMiddleware(ttl_hours=48))
-    
+
     # Rate limiting
     dp.message.middleware(RateLimitMiddleware(rate_limit=0.5))
     dp.callback_query.middleware(RateLimitMiddleware(rate_limit=0.3))
-    
+
     # Роутеры
     dp.include_router(booking_handlers.router)
     dp.include_router(user_handlers.router)
     dp.include_router(admin_handlers.router)
-    
+
     # Запуск
     logging.info("🚀 Bot started with MessageCleanupMiddleware (TTL=48h)")
     await dp.start_polling(bot)

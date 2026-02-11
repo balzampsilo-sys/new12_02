@@ -74,9 +74,7 @@ class AdminRepository(BaseRepository):
                     (user_id, username, added_by, now_local().isoformat(), role),
                 )
                 await db.commit()
-                logging.info(
-                    f"Admin added: user_id={user_id}, role={role}, by={added_by}"
-                )
+                logging.info(f"Admin added: user_id={user_id}, role={role}, by={added_by}")
                 return True
         except Exception as e:
             logging.error(f"Error adding admin {user_id}: {e}")
@@ -95,9 +93,7 @@ class AdminRepository(BaseRepository):
         """
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
-                cursor = await db.execute(
-                    "DELETE FROM admins WHERE user_id=?", (user_id,)
-                )
+                cursor = await db.execute("DELETE FROM admins WHERE user_id=?", (user_id,))
                 await db.commit()
                 deleted = cursor.rowcount > 0
 
@@ -188,9 +184,7 @@ class AdminRepository(BaseRepository):
         """
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
-                await db.execute(
-                    "UPDATE admins SET role=? WHERE user_id=?", (role, user_id)
-                )
+                await db.execute("UPDATE admins SET role=? WHERE user_id=?", (role, user_id))
                 await db.commit()
                 logging.info(f"Admin role updated: user_id={user_id}, role={role}")
                 return True

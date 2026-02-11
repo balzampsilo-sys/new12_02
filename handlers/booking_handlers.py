@@ -5,12 +5,7 @@ from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import (
     CANCELLATION_HOURS,
@@ -82,20 +77,12 @@ async def booking_start(message: Message, state: FSMContext):
     # ✅ НОВОЕ: Создаем клавиатуру выбора услуг
     keyboard = []
     for service in services:
-        service_text = (
-            f"{service.name}\n"
-            f"⏱ {service.duration_minutes} мин | 💰 {service.price}"
+        service_text = f"{service.name}\n" f"⏱ {service.duration_minutes} мин | 💰 {service.price}"
+        keyboard.append(
+            [InlineKeyboardButton(text=service_text, callback_data=f"select_service:{service.id}")]
         )
-        keyboard.append([
-            InlineKeyboardButton(
-                text=service_text,
-                callback_data=f"select_service:{service.id}"
-            )
-        ])
 
-    keyboard.append([
-        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking_flow")
-    ])
+    keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking_flow")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -119,10 +106,7 @@ async def select_service(callback: CallbackQuery, state: FSMContext):
     # Получаем услугу и проверяем доступность
     service = await ServiceRepository.get_service_by_id(service_id)
     if not service or not service.is_active:
-        await callback.answer(
-            "❌ Выбранная услуга недоступна\nВыберите другую",
-            show_alert=True
-        )
+        await callback.answer("❌ Выбранная услуга недоступна\nВыберите другую", show_alert=True)
         await state.clear()  # ✅ P1.2: Очистка state
         return
 
@@ -199,20 +183,14 @@ async def select_day(callback: CallbackQuery, state: FSMContext):
     service_id = data.get("service_id")
 
     if not service_id:
-        await callback.answer(
-            "❌ Ошибка: данные потеряны\nНачните заново",
-            show_alert=True
-        )
+        await callback.answer("❌ Ошибка: данные потеряны\nНачните заново", show_alert=True)
         await state.clear()
         return
 
     # Получаем услугу для проверки длительности
     service = await ServiceRepository.get_service_by_id(service_id)
     if not service or not service.is_active:
-        await callback.answer(
-            "❌ Услуга больше недоступна\nВыберите другую",
-            show_alert=True
-        )
+        await callback.answer("❌ Услуга больше недоступна\nВыберите другую", show_alert=True)
         await state.clear()
         return
 
@@ -223,8 +201,7 @@ async def select_day(callback: CallbackQuery, state: FSMContext):
 
     if total_slots <= 0 or len(occupied) >= total_slots:
         await callback.answer(
-            "❌ Все слоты на эту дату заняты\n\nВыберите другую дату",
-            show_alert=True
+            "❌ Все слоты на эту дату заняты\n\nВыберите другую дату", show_alert=True
         )
         # НЕ очищаем state - пользователь может выбрать другую дату
         return
@@ -295,8 +272,7 @@ async def confirm_time(callback: CallbackQuery, state: FSMContext):
     # Проверяем рабочие часы
     if not validate_work_hours(time_obj.hour, WORK_HOURS_START, WORK_HOURS_END):
         await callback.answer(
-            f"❌ Время вне рабочих часов ({WORK_HOURS_START}-{WORK_HOURS_END})",
-            show_alert=True
+            f"❌ Время вне рабочих часов ({WORK_HOURS_START}-{WORK_HOURS_END})", show_alert=True
         )
         await state.clear()
         return
@@ -419,8 +395,7 @@ async def book_time(
                 try:
                     text, kb = await create_time_slots(date_str, state)
                     await callback.message.edit_text(
-                        "❌ Не удалось записать\n\nВыберите другое время:",
-                        reply_markup=kb
+                        "❌ Не удалось записать\n\nВыберите другое время:", reply_markup=kb
                     )
                 except Exception as e:
                     logging.error(f"Error showing time slots after failed booking: {e}")
@@ -441,9 +416,7 @@ async def back_calendar(callback: CallbackQuery, state: FSMContext):
 
     if is_rescheduling:
         await callback.message.edit_text(
-            "📅 ПЕРЕНОС ЗАПИСИ\n\n"
-            "Шаг 1: Выберите НОВУЮ дату\n\n"
-            "🟢🟡🔴⚫ — статус дня",
+            "📅 ПЕРЕНОС ЗАПИСИ\n\n" "Шаг 1: Выберите НОВУЮ дату\n\n" "🟢🟡🔴⚫ — статус дня",
             reply_markup=kb,
         )
     else:
@@ -460,7 +433,7 @@ async def back_calendar(callback: CallbackQuery, state: FSMContext):
 async def my_bookings(message: Message):
     """Список записей пользователя"""
     user_id = message.from_user.id
-    
+
     # ✅ P2: Используем BookingRepository с услугами
     bookings = await BookingRepository.get_user_bookings(user_id)
 
@@ -473,8 +446,15 @@ async def my_bookings(message: Message):
     now = now_local()
 
     for i, (
-        booking_id, date_str, time_str, username, created_at,
-        service_id, service_name, duration_minutes, price
+        booking_id,
+        date_str,
+        time_str,
+        username,
+        created_at,
+        service_id,
+        service_name,
+        duration_minutes,
+        price,
     ) in enumerate(bookings, 1):
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
         booking_dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
@@ -493,7 +473,7 @@ async def my_bookings(message: Message):
             text += " — завтра\n"
         else:
             text += f" — через {days_left} дн.\n"
-        
+
         # ✅ P2: Показываем длительность и цену
         if duration_minutes:
             text += f"   ⏱ {duration_minutes} мин"
@@ -591,9 +571,7 @@ async def cancel_confirmed(
         return
 
     date_str, time_str, _ = result
-    success, _ = await booking_service.cancel_booking(
-        date_str, time_str, callback.from_user.id
-    )
+    success, _ = await booking_service.cancel_booking(date_str, time_str, callback.from_user.id)
 
     if success:
         await callback.message.edit_text(
@@ -684,10 +662,10 @@ async def start_reschedule(callback: CallbackQuery, state: FSMContext):
 
     # ✅ P2: Получаем service_id из существующей записи
     service_id = await Database.get_booking_service_id(booking_id)
-    
+
     await state.update_data(
         reschedule_booking_id=booking_id,
-        service_id=service_id  # ✅ P2: Сохраняем service_id для переноса
+        service_id=service_id,  # ✅ P2: Сохраняем service_id для переноса
     )
 
     today = now_local()
@@ -730,16 +708,8 @@ async def confirm_reschedule_time(callback: CallbackQuery, state: FSMContext):
                     callback_data=f"reschedule_confirm:{booking_id}:{date_str}:{time_str}",
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="🔙 Выбрать другое время", callback_data=f"day:{date_str}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="❌ Отменить перенос", callback_data="cancel_reschedule"
-                )
-            ],
+            [InlineKeyboardButton(text="🔙 Выбрать другое время", callback_data=f"day:{date_str}")],
+            [InlineKeyboardButton(text="❌ Отменить перенос", callback_data="cancel_reschedule")],
         ]
     )
 
@@ -821,9 +791,7 @@ async def execute_reschedule(
 async def cancel_reschedule_flow(callback: CallbackQuery, state: FSMContext):
     """Отмена процесса переноса"""
     await state.clear()
-    await callback.message.edit_text(
-        "❌ Перенос отменен\n\nВаша запись осталась без изменений"
-    )
+    await callback.message.edit_text("❌ Перенос отменен\n\nВаша запись осталась без изменений")
     await callback.answer("Перенос отменен")
 
 
@@ -848,9 +816,7 @@ async def catch_all_callback(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    logging.warning(
-        f"Unhandled callback: {callback.data} from user {callback.from_user.id}"
-    )
+    logging.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
 
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -859,10 +825,9 @@ async def catch_all_callback(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     await state.clear()
-    
+
     # ✅ P2: НЕ перенаправляем на календарь без service_id
     # Просто информируем о проблеме
     await callback.message.answer(
-        "⚠️ Устаревшая кнопка\n\nИспользуйте меню для новой записи:",
-        reply_markup=MAIN_MENU
+        "⚠️ Устаревшая кнопка\n\nИспользуйте меню для новой записи:", reply_markup=MAIN_MENU
     )

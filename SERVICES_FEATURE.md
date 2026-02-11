@@ -24,7 +24,7 @@ python main.py
 sqlite3 bookings.db
 
 INSERT INTO services (name, description, duration_minutes, price, display_order)
-VALUES 
+VALUES
   ('Расширенная консультация', 'Углубленная консультация', 90, '4000 ₽', 2),
   ('VIP консультация', 'Максимально детальная', 120, '5500 ₽', 3);
 ```
@@ -32,8 +32,8 @@ VALUES
 ## ⚙️ Настройка расписания
 
 ```sql
-UPDATE schedule_settings 
-SET work_hours_start = 8, 
+UPDATE schedule_settings
+SET work_hours_start = 8,
     work_hours_end = 20,
     max_bookings_per_day = 10
 WHERE id = 1;

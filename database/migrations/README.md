@@ -7,8 +7,8 @@ Migrations track and apply database schema changes in a controlled manner.
 ## Available Migrations
 
 ### 001_add_duration_minutes.py
-**Status:** Required  
-**Purpose:** Adds missing `duration_minutes` column to `bookings` table  
+**Status:** Required
+**Purpose:** Adds missing `duration_minutes` column to `bookings` table
 **Safe to run:** ✅ Yes (checks if column exists before adding)
 
 **Run manually:**

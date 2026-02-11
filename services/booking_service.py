@@ -13,8 +13,8 @@ from config import (
     FEEDBACK_HOURS_AFTER,
     MAX_BOOKINGS_PER_USER,
     REMINDER_HOURS_BEFORE_1H,
-    REMINDER_HOURS_BEFORE_24H,
     REMINDER_HOURS_BEFORE_2H,
+    REMINDER_HOURS_BEFORE_24H,
     TIMEZONE,
 )
 from database.queries import Database
@@ -30,25 +30,25 @@ class BookingService:
 
     async def _get_default_service(self) -> Optional[Tuple[int, int]]:
         """Получить дефолтную активную услугу
-        
+
         Returns:
             Tuple[service_id, duration] или None если услуг нет
         """
         from database.repositories.service_repository import ServiceRepository
-        
+
         services = await ServiceRepository.get_all_services(active_only=True)
-        
+
         if not services:
             logging.error("No active services available for booking")
             return None
-        
+
         # Берем первую активную услугу по display_order
         default_service = services[0]
         logging.info(
             f"Using default service: {default_service.name} "
             f"(id={default_service.id}, duration={default_service.duration_minutes}min)"
         )
-        
+
         return (default_service.id, default_service.duration_minutes)
 
     async def create_booking(
@@ -57,7 +57,7 @@ class BookingService:
         time_str: str,
         user_id: int,
         username: str,
-        service_id: Optional[int] = None
+        service_id: Optional[int] = None,
     ) -> Tuple[bool, str]:
         """Создание записи с атомарной проверкой и поддержкой услуг
 
@@ -84,21 +84,21 @@ class BookingService:
             if default is None:
                 logging.error("Cannot create booking: no active services")
                 return False, "no_services"
-            
+
             service_id, duration = default
         else:
             # Проверяем что услуга существует и активна
             from database.repositories.service_repository import ServiceRepository
-            
+
             service = await ServiceRepository.get_service_by_id(service_id)
             if not service:
                 logging.warning(f"Service {service_id} not found")
                 return False, "service_not_available"
-            
+
             if not service.is_active:
                 logging.warning(f"Service {service_id} is inactive")
                 return False, "service_not_available"
-            
+
             duration = service.duration_minutes
 
         async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -108,7 +108,7 @@ class BookingService:
                 # Проверяем лимит пользователя
                 async with db.execute(
                     "SELECT COUNT(*) FROM bookings WHERE user_id=? AND date >= date('now')",
-                    (user_id,)
+                    (user_id,),
                 ) as cursor:
                     user_count = (await cursor.fetchone())[0]
 
@@ -131,7 +131,15 @@ class BookingService:
                 cursor = await db.execute(
                     """INSERT INTO bookings (date, time, user_id, username, service_id, duration_minutes, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (date_str, time_str, user_id, username, service_id, duration, now_local().isoformat()),
+                    (
+                        date_str,
+                        time_str,
+                        user_id,
+                        username,
+                        service_id,
+                        duration,
+                        now_local().isoformat(),
+                    ),
                 )
                 booking_id = cursor.lastrowid
 
@@ -162,13 +170,13 @@ class BookingService:
         self, db: aiosqlite.Connection, date_str: str, time_str: str, duration_minutes: int
     ) -> bool:
         """Проверка доступности с учетом пересечений (внутри транзакции)
-        
+
         Args:
             db: Активное соединение с БД (внутри транзакции)
             date_str: Дата в формате YYYY-MM-DD
             time_str: Время в формате HH:MM
             duration_minutes: Длительность в минутах
-            
+
         Returns:
             True если слот свободен, False если занят
         """
@@ -178,16 +186,12 @@ class BookingService:
 
         # Получаем все записи на этот день
         async with db.execute(
-            "SELECT time, duration_minutes FROM bookings WHERE date=?",
-            (date_str,)
+            "SELECT time, duration_minutes FROM bookings WHERE date=?", (date_str,)
         ) as cursor:
             existing = await cursor.fetchall()
 
         # Проверяем заблокированные слоты
-        async with db.execute(
-            "SELECT time FROM blocked_slots WHERE date=?",
-            (date_str,)
-        ) as cursor:
+        async with db.execute("SELECT time FROM blocked_slots WHERE date=?", (date_str,)) as cursor:
             blocked = await cursor.fetchall()
 
         # Проверяем пересечения с существующими записями
@@ -223,7 +227,7 @@ class BookingService:
         username: str,
     ) -> bool:
         """Перенос записи в одной транзакции
-        
+
         Args:
             booking_id: ID записи для переноса
             old_date_str: Старая дата
@@ -232,7 +236,7 @@ class BookingService:
             new_time_str: Новое время
             user_id: ID пользователя
             username: Имя пользователя
-            
+
         Returns:
             True если перенос успешен, False иначе
         """
@@ -249,9 +253,7 @@ class BookingService:
 
                 if not old_booking:
                     await db.rollback()
-                    logging.warning(
-                        f"Booking {booking_id} not found for user {user_id}"
-                    )
+                    logging.warning(f"Booking {booking_id} not found for user {user_id}")
                     return False
 
                 duration = old_booking[1] or 60
@@ -280,9 +282,7 @@ class BookingService:
                 self._remove_job_safe(f"reminder_{booking_id}")
                 self._remove_job_safe(f"feedback_{booking_id}")
 
-                await self._schedule_reminder(
-                    booking_id, new_date_str, new_time_str, user_id
-                )
+                await self._schedule_reminder(booking_id, new_date_str, new_time_str, user_id)
 
                 await Database.log_event(
                     user_id,
@@ -300,7 +300,7 @@ class BookingService:
 
     def _remove_job_safe(self, job_id: str) -> None:
         """Безопасное удаление задачи из scheduler
-        
+
         Args:
             job_id: Идентификатор задачи
         """
@@ -313,7 +313,7 @@ class BookingService:
         self, booking_id: int, date_str: str, time_str: str, user_id: int
     ) -> None:
         """Планирование напоминаний
-        
+
         Args:
             booking_id: ID записи
             date_str: Дата записи
@@ -321,9 +321,7 @@ class BookingService:
             user_id: ID пользователя
         """
         try:
-            booking_datetime = datetime.strptime(
-                f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
-            )
+            booking_datetime = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
             booking_datetime = TIMEZONE.localize(booking_datetime)
             now = now_local()
             time_until_booking = booking_datetime - now
@@ -373,16 +371,14 @@ class BookingService:
         except Exception as e:
             logging.error(f"Error scheduling reminder: {e}", exc_info=True)
 
-    async def cancel_booking(
-        self, date_str: str, time_str: str, user_id: int
-    ) -> Tuple[bool, int]:
+    async def cancel_booking(self, date_str: str, time_str: str, user_id: int) -> Tuple[bool, int]:
         """Отмена записи
-        
+
         Args:
             date_str: Дата записи
             time_str: Время записи
             user_id: ID пользователя
-            
+
         Returns:
             Tuple[success, booking_id]
         """
@@ -405,9 +401,7 @@ class BookingService:
             self._remove_job_safe(f"reminder_{booking_id}")
             self._remove_job_safe(f"feedback_{booking_id}")
 
-            await Database.log_event(
-                user_id, "booking_cancelled", f"{date_str} {time_str}"
-            )
+            await Database.log_event(user_id, "booking_cancelled", f"{date_str} {time_str}")
             logging.info(f"Booking {booking_id} cancelled by user {user_id}")
             return True, booking_id
         except Exception as e:
@@ -416,7 +410,7 @@ class BookingService:
 
     async def restore_reminders(self, batch_size: int = 50) -> None:
         """Восстановить напоминания после рестарта с батчингом
-        
+
         Args:
             batch_size: Размер батча для обработки (по умолчанию 50)
         """
@@ -431,13 +425,13 @@ class BookingService:
             total_bookings = len(all_bookings)
             restored_count = 0
             processed_count = 0
-            
+
             logging.info(f"Starting reminder restoration for {total_bookings} bookings...")
-            
+
             # Обработка батчами
             for i in range(0, total_bookings, batch_size):
-                batch = all_bookings[i:i + batch_size]
-                
+                batch = all_bookings[i : i + batch_size]
+
                 for booking_id, date_str, time_str, user_id in batch:
                     try:
                         booking_datetime = datetime.strptime(
@@ -446,7 +440,9 @@ class BookingService:
                         booking_datetime = TIMEZONE.localize(booking_datetime)
 
                         # Восстановить напоминание (используем константы)
-                        reminder_time = booking_datetime - timedelta(hours=REMINDER_HOURS_BEFORE_24H)
+                        reminder_time = booking_datetime - timedelta(
+                            hours=REMINDER_HOURS_BEFORE_24H
+                        )
                         if reminder_time > now:
                             self.scheduler.add_job(
                                 self._send_reminder,
@@ -469,14 +465,14 @@ class BookingService:
                                 id=f"feedback_{booking_id}",
                                 replace_existing=True,
                             )
-                            
+
                     except Exception as e:
                         logging.warning(
                             f"Failed to restore reminders for booking {booking_id}: {e}"
                         )
                     finally:
                         processed_count += 1
-                
+
                 # Логируем прогресс после каждого батча
                 logging.info(
                     f"Reminder restoration progress: {processed_count}/{total_bookings} processed, "
@@ -492,7 +488,7 @@ class BookingService:
 
     async def _send_reminder(self, user_id: int, date_str: str, time_str: str) -> None:
         """Отправка напоминания
-        
+
         Args:
             user_id: ID пользователя
             date_str: Дата записи
@@ -520,7 +516,7 @@ class BookingService:
         self, user_id: int, booking_id: int, date_str: str, time_str: str
     ) -> None:
         """Запрос обратной связи
-        
+
         Args:
             user_id: ID пользователя
             booking_id: ID записи
@@ -535,20 +531,12 @@ class BookingService:
                     InlineKeyboardButton(
                         text="⭐⭐⭐⭐⭐", callback_data=f"feedback:{booking_id}:5"
                     ),
-                    InlineKeyboardButton(
-                        text="⭐⭐⭐⭐", callback_data=f"feedback:{booking_id}:4"
-                    ),
+                    InlineKeyboardButton(text="⭐⭐⭐⭐", callback_data=f"feedback:{booking_id}:4"),
                 ],
                 [
-                    InlineKeyboardButton(
-                        text="⭐⭐⭐", callback_data=f"feedback:{booking_id}:3"
-                    ),
-                    InlineKeyboardButton(
-                        text="⭐⭐", callback_data=f"feedback:{booking_id}:2"
-                    ),
-                    InlineKeyboardButton(
-                        text="⭐", callback_data=f"feedback:{booking_id}:1"
-                    ),
+                    InlineKeyboardButton(text="⭐⭐⭐", callback_data=f"feedback:{booking_id}:3"),
+                    InlineKeyboardButton(text="⭐⭐", callback_data=f"feedback:{booking_id}:2"),
+                    InlineKeyboardButton(text="⭐", callback_data=f"feedback:{booking_id}:1"),
                 ],
             ]
         )
@@ -559,8 +547,6 @@ class BookingService:
                 "💬 Как прошла встреча?\n\nОцените качество услуги:",
                 reply_markup=feedback_kb,
             )
-            await Database.log_event(
-                user_id, "feedback_request_sent", f"{date_str} {time_str}"
-            )
+            await Database.log_event(user_id, "feedback_request_sent", f"{date_str} {time_str}")
         except Exception as e:
             logging.error(f"Error sending feedback request: {e}", exc_info=True)

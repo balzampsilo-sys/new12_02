@@ -67,7 +67,7 @@
    - Добавлена автоматическая миграция для существующих БД
    - Создан индекс idx_bookings_service
 
-**Коммиты:** 
+**Коммиты:**
 - Миграция: [eca657c](https://github.com/balzampsilo-sys/tg-bot-10_02/commit/eca657cb37efd3209a18101b4ee77a7ed1c53e26)
 - init_db: [7886ec5](https://github.com/balzampsilo-sys/tg-bot-10_02/commit/7886ec5835b5f480f082e5a971a61a4c7e87686c)
 
@@ -153,6 +153,6 @@ git revert HEAD~3..HEAD
 
 ---
 
-**Статус:** ✅ ЗАВЕРШЕНО  
-**Дата:** 10.02.2026  
+**Статус:** ✅ ЗАВЕРШЕНО
+**Дата:** 10.02.2026
 **Автор:** Perplexity AI

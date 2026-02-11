@@ -36,9 +36,7 @@ async def admin_panel(message: Message):
         await message.answer("❌ Нет доступа")
         return
 
-    await message.answer(
-        "🔐 АДМИН-ПАНЕЛЬ\n\nВыберите действие:", reply_markup=ADMIN_MENU
-    )
+    await message.answer("🔐 АДМИН-ПАНЕЛЬ\n\nВыберите действие:", reply_markup=ADMIN_MENU)
 
 
 @router.message(F.text == "🔙 Выход из админки")
@@ -96,9 +94,7 @@ async def recommendations(message: Message):
     recs = await AnalyticsService.get_recommendations()
 
     if not recs:
-        await message.answer(
-            "✅ Всё отлично! Рекомендаций нет.", reply_markup=ADMIN_MENU
-        )
+        await message.answer("✅ Всё отлично! Рекомендаций нет.", reply_markup=ADMIN_MENU)
         return
 
     text = "💡 РЕКОМЕНДАЦИИ:\n\n"
@@ -183,16 +179,8 @@ async def mass_operations(message: Message):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📢 Рассылка всем", callback_data="admin_broadcast"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🗑 Очистить старые записи", callback_data="admin_cleanup"
-                )
-            ],
+            [InlineKeyboardButton(text="📢 Рассылка всем", callback_data="admin_broadcast")],
+            [InlineKeyboardButton(text="🗑 Очистить старые записи", callback_data="admin_cleanup")],
             [
                 InlineKeyboardButton(
                     text="🔒 Заблокировать слоты", callback_data="admin_block_slots"
@@ -300,15 +288,11 @@ async def broadcast_execute(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer(
-        "✅ Рассылка завершена!\n\n"
-        f"Успешно: {success_count}\n"
-        f"Ошибок: {fail_count}",
+        "✅ Рассылка завершена!\n\n" f"Успешно: {success_count}\n" f"Ошибок: {fail_count}",
         reply_markup=ADMIN_MENU,
     )
 
-    logging.info(
-        f"Broadcast completed by admin. Success: {success_count}, Failed: {fail_count}"
-    )
+    logging.info(f"Broadcast completed by admin. Success: {success_count}, Failed: {fail_count}")
 
 
 @router.callback_query(F.data == "admin_cleanup")
@@ -339,33 +323,19 @@ async def block_slots_menu(callback: CallbackQuery):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔒 Заблокировать слот", callback_data="block_slot_start"
-                )
-            ],
+            [InlineKeyboardButton(text="🔒 Заблокировать слот", callback_data="block_slot_start")],
             [
                 InlineKeyboardButton(
                     text="🔓 Разблокировать слот", callback_data="unblock_slot_start"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="📋 Список блокировок", callback_data="list_blocked_slots"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🔙 Назад", callback_data="admin_cancel"
-                )
-            ],
+            [InlineKeyboardButton(text="📋 Список блокировок", callback_data="list_blocked_slots")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_cancel")],
         ]
     )
 
     await callback.message.edit_text(
-        "🔒 БЛОКИРОВКА СЛОТОВ\n\n"
-        "Выберите действие:",
-        reply_markup=kb
+        "🔒 БЛОКИРОВКА СЛОТОВ\n\n" "Выберите действие:", reply_markup=kb
     )
     await callback.answer()
 
@@ -378,7 +348,7 @@ async def block_slot_start(callback: CallbackQuery, state: FSMContext):
         return
 
     await state.set_state(AdminStates.awaiting_block_date)
-    
+
     await callback.message.edit_text(
         "🔒 БЛОКИРОВКА СЛОТА\n\n"
         "Шаг 1: Введите дату в формате ГГГГ-ММ-ДД\n"
@@ -403,27 +373,25 @@ async def block_slot_date(message: Message, state: FSMContext):
     # Валидация даты
     try:
         from datetime import datetime
+
         date_obj = datetime.strptime(message.text, "%Y-%m-%d")
         date_str = message.text
-        
+
         # Проверка что дата не в прошлом
         if date_obj.date() < now_local().date():
             await message.answer(
-                "❌ Нельзя блокировать прошедшие даты\n\n"
-                "Введите корректную дату:"
+                "❌ Нельзя блокировать прошедшие даты\n\n" "Введите корректную дату:"
             )
             return
     except ValueError:
         await message.answer(
-            "❌ Неверный формат даты\n\n"
-            "Используйте формат ГГГГ-ММ-ДД\n"
-            "Например: 2026-02-15"
+            "❌ Неверный формат даты\n\n" "Используйте формат ГГГГ-ММ-ДД\n" "Например: 2026-02-15"
         )
         return
 
     await state.update_data(block_date=date_str)
     await state.set_state(AdminStates.awaiting_block_time)
-    
+
     await message.answer(
         f"✅ Дата: {date_str}\n\n"
         "Шаг 2: Введите время в формате ЧЧ:ММ\n"
@@ -451,7 +419,7 @@ async def block_slot_time(message: Message, state: FSMContext):
     if message.text.lower() == "all":
         await state.update_data(block_time="all")
         await state.set_state(AdminStates.awaiting_block_reason)
-        
+
         await message.answer(
             f"📅 Дата: {date_str}\n"
             "🕒 Время: весь день\n\n"
@@ -463,30 +431,29 @@ async def block_slot_time(message: Message, state: FSMContext):
     # Валидация времени
     try:
         from datetime import datetime
-        from config import WORK_HOURS_START, WORK_HOURS_END
-        
+
+        from config import WORK_HOURS_END, WORK_HOURS_START
+
         time_obj = datetime.strptime(message.text, "%H:%M")
         hour = time_obj.hour
-        
+
         if not (WORK_HOURS_START <= hour < WORK_HOURS_END):
             await message.answer(
                 f"❌ Время должно быть в рабочих часах ({WORK_HOURS_START}:00 - {WORK_HOURS_END}:00)\n\n"
                 "Введите корректное время:"
             )
             return
-            
+
         time_str = message.text
     except ValueError:
         await message.answer(
-            "❌ Неверный формат времени\n\n"
-            "Используйте формат ЧЧ:ММ\n"
-            "Например: 14:00"
+            "❌ Неверный формат времени\n\n" "Используйте формат ЧЧ:ММ\n" "Например: 14:00"
         )
         return
 
     await state.update_data(block_time=time_str)
     await state.set_state(AdminStates.awaiting_block_reason)
-    
+
     await message.answer(
         f"✅ Дата: {date_str}\n"
         f"✅ Время: {time_str}\n\n"
@@ -506,18 +473,18 @@ async def block_slot_reason(message: Message, state: FSMContext):
     date_str = data.get("block_date")
     time_str = data.get("block_time")
     reason = None if message.text == "-" else message.text
-    
+
     admin_id = message.from_user.id
     bot = message.bot
-    
+
     # Блокировка всего дня
     if time_str == "all":
-        from config import WORK_HOURS_START, WORK_HOURS_END
-        
+        from config import WORK_HOURS_END, WORK_HOURS_START
+
         blocked_count = 0
         failed_count = 0
         all_cancelled_users = []
-        
+
         for hour in range(WORK_HOURS_START, WORK_HOURS_END):
             slot_time = f"{hour:02d}:00"
             # ✅ ОБНОВЛЕНО: используем новый метод с уведомлениями
@@ -529,7 +496,7 @@ async def block_slot_reason(message: Message, state: FSMContext):
                 all_cancelled_users.extend(cancelled_users)
             else:
                 failed_count += 1
-        
+
         # Отправляем уведомления всем затронутым пользователям
         notifications_sent = 0
         for user_data in all_cancelled_users:
@@ -542,12 +509,12 @@ async def block_slot_reason(message: Message, state: FSMContext):
                     f"Приносим извинения за неудобства.\n"
                     f"Для новой записи используйте /start"
                 )
-                await bot.send_message(user_data['user_id'], notification_text)
+                await bot.send_message(user_data["user_id"], notification_text)
                 notifications_sent += 1
                 await asyncio.sleep(0.05)  # rate limiting
             except Exception as e:
                 logging.error(f"Failed to notify user {user_data['user_id']}: {e}")
-        
+
         await state.clear()
         await message.answer(
             f"✅ Блокировка завершена!\n\n"
@@ -556,22 +523,22 @@ async def block_slot_reason(message: Message, state: FSMContext):
             f"❌ Уже были заняты: {failed_count} слотов\n"
             f"📧 Отменено записей: {len(all_cancelled_users)}\n"
             f"✉️ Уведомлений отправлено: {notifications_sent}",
-            reply_markup=ADMIN_MENU
+            reply_markup=ADMIN_MENU,
         )
-        
+
         logging.info(
             f"Admin {admin_id} blocked full day {date_str}, "
             f"cancelled {len(all_cancelled_users)} bookings"
         )
         return
-    
+
     # ✅ ОБНОВЛЕНО: Блокировка одного слота с уведомлением
     success, cancelled_users = await Database.block_slot_with_notification(
         date_str, time_str, admin_id, reason
     )
-    
+
     await state.clear()
-    
+
     if success:
         # Отправляем уведомления
         notifications_sent = 0
@@ -585,19 +552,19 @@ async def block_slot_reason(message: Message, state: FSMContext):
                     f"Приносим извинения за неудобства.\n"
                     f"Для новой записи используйте /start"
                 )
-                await bot.send_message(user_data['user_id'], notification_text)
+                await bot.send_message(user_data["user_id"], notification_text)
                 notifications_sent += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
                 logging.error(f"Failed to notify user {user_data['user_id']}: {e}")
-        
+
         response_text = (
             f"✅ Слот заблокирован!\n\n"
             f"📅 Дата: {date_str}\n"
             f"🕒 Время: {time_str}\n"
             f"💬 Причина: {reason or 'не указана'}"
         )
-        
+
         if cancelled_users:
             response_text += (
                 f"\n\n📧 Отменено записей: {len(cancelled_users)}\n"
@@ -606,18 +573,16 @@ async def block_slot_reason(message: Message, state: FSMContext):
             )
             for user_data in cancelled_users:
                 response_text += f"  • @{user_data['username']}\n"
-        
+
         await message.answer(response_text, reply_markup=ADMIN_MENU)
-        
+
         logging.info(
             f"Admin {admin_id} blocked slot {date_str} {time_str}, "
             f"cancelled {len(cancelled_users)} bookings"
         )
     else:
         await message.answer(
-            f"❌ Слот уже заблокирован\n\n"
-            f"📅 {date_str} {time_str}",
-            reply_markup=ADMIN_MENU
+            f"❌ Слот уже заблокирован\n\n" f"📅 {date_str} {time_str}", reply_markup=ADMIN_MENU
         )
 
 
@@ -629,7 +594,7 @@ async def unblock_slot_menu(callback: CallbackQuery):
         return
 
     blocked = await Database.get_blocked_slots()
-    
+
     if not blocked:
         await callback.answer("✅ Нет заблокированных слотов", show_alert=True)
         return
@@ -639,25 +604,20 @@ async def unblock_slot_menu(callback: CallbackQuery):
         text = f"🔓 {date_str} {time_str}"
         if reason:
             text += f" ({reason[:20]}...)" if len(reason) > 20 else f" ({reason})"
-        
-        keyboard.append([
-            InlineKeyboardButton(
-                text=text,
-                callback_data=f"unblock:{date_str}:{time_str}"
-            )
-        ])
-    
-    keyboard.append([
-        InlineKeyboardButton(text="🔙 Назад", callback_data="admin_block_slots")
-    ])
-    
+
+        keyboard.append(
+            [InlineKeyboardButton(text=text, callback_data=f"unblock:{date_str}:{time_str}")]
+        )
+
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_block_slots")])
+
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    
+
     await callback.message.edit_text(
         f"🔓 РАЗБЛОКИРОВАТЬ СЛОТ\n\n"
         f"Найдено блокировок: {len(blocked)}\n"
         "Выберите слот для разблокировки:",
-        reply_markup=kb
+        reply_markup=kb,
     )
 
 
@@ -675,11 +635,11 @@ async def unblock_slot_confirm(callback: CallbackQuery):
         return
 
     success = await Database.unblock_slot(date_str, time_str)
-    
+
     if success:
         await callback.answer(f"✅ Слот {date_str} {time_str} разблокирован")
         logging.info(f"Admin {callback.from_user.id} unblocked slot {date_str} {time_str}")
-        
+
         await unblock_slot_menu(callback)
     else:
         await callback.answer("❌ Слот не найден", show_alert=True)
@@ -693,28 +653,30 @@ async def list_blocked_slots(callback: CallbackQuery):
         return
 
     blocked = await Database.get_blocked_slots()
-    
+
     if not blocked:
         await callback.message.edit_text(
             "✅ Нет заблокированных слотов",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔙 Назад", callback_data="admin_block_slots")
-            ]])
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_block_slots")]
+                ]
+            ),
         )
         return
 
     text = f"📋 ЗАБЛОКИРОВАННЫЕ СЛОТЫ ({len(blocked)})\n\n"
-    
+
     for date_str, time_str, reason in blocked[:50]:
         text += f"🔒 {date_str} {time_str}"
         if reason:
             text += f"\n   💬 {reason}\n"
         text += "\n"
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🔙 Назад", callback_data="admin_block_slots")
-    ]])
-    
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_block_slots")]]
+    )
+
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
