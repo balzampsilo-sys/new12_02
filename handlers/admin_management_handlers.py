@@ -169,17 +169,84 @@ async def add_admin_process(message: Message, state: FSMContext):
         )
         return
 
-    # ✅ ИСПРАВЛЕНО: Получаем username с обработкой ошибок
+    # ✅ IMPROVEMENT: Получаем username с fallback
     username = None
     try:
         chat = await message.bot.get_chat(new_admin_id)
         username = chat.username
+        logging.info(f"Successfully got username for {new_admin_id}: {username}")
     except Exception as e:
-        # ⚠️ Пользователь не найден или бот заблокирован - продолжаем без username
-        logging.warning(f"Could not get username for {new_admin_id}: {e}")
-        username = None
+        logging.warning(f"Failed to get username for {new_admin_id}: {e}")
+        
+        # ✅ IMPROVEMENT: Просим ввести username вручную
+        await state.update_data(pending_admin_id=new_admin_id)
+        await state.set_state(AdminStates.awaiting_admin_username)
+        
+        await message.answer(
+            "⚠️ Не удалось автоматически получить username\n\n"
+            "📝 Введите username пользователя вручную:\n"
+            "Пример: @username или username\n\n"
+            "Если username нет - отправьте: none\n"
+            "Для отмены: /cancel"
+        )
+        return
 
     # Добавляем в БД
+    await _finalize_admin_addition(message, state, new_admin_id, username)
+
+
+@router.message(AdminStates.awaiting_admin_username)
+async def add_admin_username(message: Message, state: FSMContext):
+    """✅ IMPROVEMENT: Обработка вручного ввода username"""
+    if not is_admin(message.from_user.id):
+        await state.clear()
+        return
+
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Добавление отменено", reply_markup=ADMIN_MENU)
+        return
+
+    data = await state.get_data()
+    new_admin_id = data.get("pending_admin_id")
+
+    if not new_admin_id:
+        await state.clear()
+        await message.answer("❌ Ошибка: данные потеряны", reply_markup=ADMIN_MENU)
+        return
+
+    # Обработка username
+    username_input = message.text.strip()
+    
+    if username_input.lower() == "none":
+        username = None
+    else:
+        # Убираем @ если есть
+        username = username_input.lstrip("@")
+        
+        # Валидация формата
+        if not username.replace("_", "").isalnum() or len(username) < 3:
+            await message.answer(
+                "❌ Неверный формат username\n\n"
+                "Username должен:\n"
+                "- Состоять из букв, цифр и _\n"
+                "- Быть минимум 3 символа\n\n"
+                "Пример: @john_doe\n"
+                "Попробуйте снова:"
+            )
+            return
+
+    # Добавляем в БД
+    await _finalize_admin_addition(message, state, new_admin_id, username)
+
+
+async def _finalize_admin_addition(
+    message: Message, 
+    state: FSMContext, 
+    new_admin_id: int, 
+    username: str | None
+):
+    """Завершить добавление админа"""
     success = await Database.add_admin(
         user_id=new_admin_id,
         username=username,
