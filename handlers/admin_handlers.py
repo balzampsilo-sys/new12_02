@@ -264,7 +264,6 @@ async def broadcast_start(callback: CallbackQuery, state: FSMContext):
 async def broadcast_execute(message: Message, state: FSMContext):
     """Выполнение рассылки с rate limiting (SECURE)"""
     # CRITICAL SECURITY FIX: проверка админа в FSM-обработчике
-    # Уязвимость: любой пользователь мог установить FSM state и выполнить рассылку
     if not is_admin(message.from_user.id):
         await state.clear()
         await message.answer("❌ Нет доступа")
@@ -293,10 +292,9 @@ async def broadcast_execute(message: Message, state: FSMContext):
     for user_id in user_ids:
         try:
             await message.bot.send_message(user_id, broadcast_text)
-            await asyncio.sleep(BROADCAST_DELAY)  # Используем константу
+            await asyncio.sleep(BROADCAST_DELAY)
             success_count += 1
         except Exception as e:
-            # Улучшенное логирование ошибок
             logging.error(f"Broadcast failed for user_id={user_id}: {e}")
             fail_count += 1
 
@@ -322,7 +320,6 @@ async def cleanup_old_bookings(callback: CallbackQuery):
 
     today_str = now_local().strftime("%Y-%m-%d")
 
-    # Используем новый метод Database API
     deleted_count = await Database.cleanup_old_bookings(today_str)
 
     await callback.message.edit_text(
@@ -500,7 +497,7 @@ async def block_slot_time(message: Message, state: FSMContext):
 
 @router.message(AdminStates.awaiting_block_reason)
 async def block_slot_reason(message: Message, state: FSMContext):
-    """Обработка причины и финальная блокировка"""
+    """Обработка причины и финальная блокировка с уведомлениями"""
     if not is_admin(message.from_user.id):
         await state.clear()
         return
@@ -511,6 +508,7 @@ async def block_slot_reason(message: Message, state: FSMContext):
     reason = None if message.text == "-" else message.text
     
     admin_id = message.from_user.id
+    bot = message.bot
     
     # Блокировка всего дня
     if time_str == "all":
@@ -518,44 +516,106 @@ async def block_slot_reason(message: Message, state: FSMContext):
         
         blocked_count = 0
         failed_count = 0
+        all_cancelled_users = []
         
         for hour in range(WORK_HOURS_START, WORK_HOURS_END):
             slot_time = f"{hour:02d}:00"
-            success = await Database.block_slot(date_str, slot_time, admin_id, reason)
+            # ✅ ОБНОВЛЕНО: используем новый метод с уведомлениями
+            success, cancelled_users = await Database.block_slot_with_notification(
+                date_str, slot_time, admin_id, reason
+            )
             if success:
                 blocked_count += 1
+                all_cancelled_users.extend(cancelled_users)
             else:
                 failed_count += 1
+        
+        # Отправляем уведомления всем затронутым пользователям
+        notifications_sent = 0
+        for user_data in all_cancelled_users:
+            try:
+                notification_text = (
+                    f"⚠️ ОТМЕНА ЗАПИСИ ПО РЕШЕНИЮ АДМИНИСТРАТОРА\n\n"
+                    f"📅 Дата: {user_data['date']}\n"
+                    f"🕒 Время: {user_data['time']}\n\n"
+                    f"💬 Причина:\n{user_data['reason'] or 'Не указана'}\n\n"
+                    f"Приносим извинения за неудобства.\n"
+                    f"Для новой записи используйте /start"
+                )
+                await bot.send_message(user_data['user_id'], notification_text)
+                notifications_sent += 1
+                await asyncio.sleep(0.05)  # rate limiting
+            except Exception as e:
+                logging.error(f"Failed to notify user {user_data['user_id']}: {e}")
         
         await state.clear()
         await message.answer(
             f"✅ Блокировка завершена!\n\n"
             f"📅 Дата: {date_str}\n"
             f"🔒 Заблокировано: {blocked_count} слотов\n"
-            f"❌ Уже были заняты: {failed_count} слотов",
+            f"❌ Уже были заняты: {failed_count} слотов\n"
+            f"📧 Отменено записей: {len(all_cancelled_users)}\n"
+            f"✉️ Уведомлений отправлено: {notifications_sent}",
             reply_markup=ADMIN_MENU
         )
         
-        logging.info(f"Admin {admin_id} blocked full day {date_str}")
+        logging.info(
+            f"Admin {admin_id} blocked full day {date_str}, "
+            f"cancelled {len(all_cancelled_users)} bookings"
+        )
         return
     
-    # Блокировка одного слота
-    success = await Database.block_slot(date_str, time_str, admin_id, reason)
+    # ✅ ОБНОВЛЕНО: Блокировка одного слота с уведомлением
+    success, cancelled_users = await Database.block_slot_with_notification(
+        date_str, time_str, admin_id, reason
+    )
     
     await state.clear()
     
     if success:
-        await message.answer(
+        # Отправляем уведомления
+        notifications_sent = 0
+        for user_data in cancelled_users:
+            try:
+                notification_text = (
+                    f"⚠️ ОТМЕНА ЗАПИСИ ПО РЕШЕНИЮ АДМИНИСТРАТОРА\n\n"
+                    f"📅 Дата: {user_data['date']}\n"
+                    f"🕒 Время: {user_data['time']}\n\n"
+                    f"💬 Причина:\n{user_data['reason'] or 'Не указана'}\n\n"
+                    f"Приносим извинения за неудобства.\n"
+                    f"Для новой записи используйте /start"
+                )
+                await bot.send_message(user_data['user_id'], notification_text)
+                notifications_sent += 1
+                await asyncio.sleep(0.05)
+            except Exception as e:
+                logging.error(f"Failed to notify user {user_data['user_id']}: {e}")
+        
+        response_text = (
             f"✅ Слот заблокирован!\n\n"
             f"📅 Дата: {date_str}\n"
             f"🕒 Время: {time_str}\n"
-            f"💬 Причина: {reason or 'не указана'}",
-            reply_markup=ADMIN_MENU
+            f"💬 Причина: {reason or 'не указана'}"
         )
-        logging.info(f"Admin {admin_id} blocked slot {date_str} {time_str}")
+        
+        if cancelled_users:
+            response_text += (
+                f"\n\n📧 Отменено записей: {len(cancelled_users)}\n"
+                f"✉️ Уведомлений отправлено: {notifications_sent}\n\n"
+                f"Затронутые пользователи:\n"
+            )
+            for user_data in cancelled_users:
+                response_text += f"  • @{user_data['username']}\n"
+        
+        await message.answer(response_text, reply_markup=ADMIN_MENU)
+        
+        logging.info(
+            f"Admin {admin_id} blocked slot {date_str} {time_str}, "
+            f"cancelled {len(cancelled_users)} bookings"
+        )
     else:
         await message.answer(
-            f"❌ Слот уже заблокирован или занят\n\n"
+            f"❌ Слот уже заблокирован\n\n"
             f"📅 {date_str} {time_str}",
             reply_markup=ADMIN_MENU
         )
@@ -568,7 +628,6 @@ async def unblock_slot_menu(callback: CallbackQuery):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    # Получаем все блокировки
     blocked = await Database.get_blocked_slots()
     
     if not blocked:
@@ -576,7 +635,7 @@ async def unblock_slot_menu(callback: CallbackQuery):
         return
 
     keyboard = []
-    for date_str, time_str, reason in blocked[:20]:  # Лимит 20
+    for date_str, time_str, reason in blocked[:20]:
         text = f"🔓 {date_str} {time_str}"
         if reason:
             text += f" ({reason[:20]}...)" if len(reason) > 20 else f" ({reason})"
@@ -621,7 +680,6 @@ async def unblock_slot_confirm(callback: CallbackQuery):
         await callback.answer(f"✅ Слот {date_str} {time_str} разблокирован")
         logging.info(f"Admin {callback.from_user.id} unblocked slot {date_str} {time_str}")
         
-        # Обновляем список
         await unblock_slot_menu(callback)
     else:
         await callback.answer("❌ Слот не найден", show_alert=True)
@@ -647,7 +705,7 @@ async def list_blocked_slots(callback: CallbackQuery):
 
     text = f"📋 ЗАБЛОКИРОВАННЫЕ СЛОТЫ ({len(blocked)})\n\n"
     
-    for date_str, time_str, reason in blocked[:50]:  # Лимит 50
+    for date_str, time_str, reason in blocked[:50]:
         text += f"🔒 {date_str} {time_str}"
         if reason:
             text += f"\n   💬 {reason}\n"
@@ -659,7 +717,6 @@ async def list_blocked_slots(callback: CallbackQuery):
     
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
-
 
 
 @router.callback_query(F.data == "admin_cancel")
