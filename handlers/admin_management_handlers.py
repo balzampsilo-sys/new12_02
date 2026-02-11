@@ -169,11 +169,14 @@ async def add_admin_process(message: Message, state: FSMContext):
         )
         return
 
-    # Получаем username если возможно
+    # ✅ ИСПРАВЛЕНО: Получаем username с обработкой ошибок
+    username = None
     try:
         chat = await message.bot.get_chat(new_admin_id)
         username = chat.username
-    except Exception:
+    except Exception as e:
+        # ⚠️ Пользователь не найден или бот заблокирован - продолжаем без username
+        logging.warning(f"Could not get username for {new_admin_id}: {e}")
         username = None
 
     # Добавляем в БД
