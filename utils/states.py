@@ -12,7 +12,7 @@ class AdminStates(StatesGroup):
     # Рассылка
     awaiting_broadcast_message = State()
     
-    # ✅ ADDED: Блокировка слотов
+    # Блокировка слотов
     awaiting_block_date = State()
     awaiting_block_time = State()
     awaiting_block_reason = State()
@@ -23,3 +23,9 @@ class FieldEditStates(StatesGroup):
     selecting_field_type = State()
     selecting_record = State()
     entering_new_value = State()
+
+
+class MassEditStates(StatesGroup):
+    """Состояния для массового редактирования"""  # ✅ ADDED
+    awaiting_date_for_time_edit = State()  # Дата для массового переноса
+    awaiting_new_time = State()            # Новое время (сдвиг)
