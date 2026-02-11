@@ -36,10 +36,13 @@ WORK_HOURS_END = int(os.getenv("WORK_HOURS_END", "18"))
 DATABASE_PATH = os.getenv("DATABASE_PATH", "bookings.db")
 
 # === BACKUP ===
-BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "True").lower() in ("true", "1", "yes")  # ✅ ADDED
+BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "True").lower() in ("true", "1", "yes")
 BACKUP_DIR = os.getenv("BACKUP_DIR", "backups")
 BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "24"))
 BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
+
+# === BROADCAST ===
+BROADCAST_DELAY = float(os.getenv("BROADCAST_DELAY", "0.05"))  # ✅ ADDED: Задержка между сообщениями (сек)
 
 # === TIMEZONE ===
 TIMEZONE = timezone(timedelta(hours=3))  # MSK
