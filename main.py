@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import os
+import sqlite3
 
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
@@ -31,6 +33,76 @@ logging.basicConfig(
 )
 
 
+def check_and_restore_database():
+    """
+    Проверяет целостность БД и восстанавливает из бэкапа при необходимости.
+    Вызывается ДО инициализации БД.
+    """
+    db_exists = os.path.exists(DATABASE_PATH)
+    db_corrupted = False
+    
+    # Проверяем целостность БД если она существует
+    if db_exists:
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA integrity_check")
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result[0] != "ok":
+                db_corrupted = True
+                logging.error(f"❌ Database corrupted: {result[0]}")
+            else:
+                logging.info("✅ Database integrity check passed")
+                return  # БД в порядке
+        except sqlite3.Error as e:
+            db_corrupted = True
+            logging.error(f"❌ Database error: {e}")
+    
+    # Если БД нет или она повреждена - пытаемся восстановить
+    if not db_exists or db_corrupted:
+        if not BACKUP_ENABLED:
+            if not db_exists:
+                logging.info("ℹ️ Database doesn't exist, will be created")
+            else:
+                logging.warning("⚠️ Database corrupted but backup is disabled")
+            return
+        
+        backup_service = BackupService(
+            db_path=DATABASE_PATH,
+            backup_dir=BACKUP_DIR,
+            retention_days=BACKUP_RETENTION_DAYS
+        )
+        
+        backups = backup_service.list_backups()
+        
+        if not backups:
+            if not db_exists:
+                logging.info("ℹ️ No database and no backups, will create new DB")
+            else:
+                logging.warning("⚠️ Database corrupted but no backups available")
+            return
+        
+        # Восстанавливаем из последнего бэкапа
+        latest_backup = backups[0]
+        backup_path = f"{BACKUP_DIR}/{latest_backup['filename']}"
+        
+        status = "повреждена" if db_corrupted else "отсутствует"
+        logging.warning(
+            f"🔄 Database {status}, restoring from backup: {latest_backup['filename']}"
+        )
+        
+        success = backup_service.restore_backup(backup_path)
+        
+        if success:
+            logging.info(
+                f"✅ Database restored from backup ({latest_backup['created_at']})"
+            )
+        else:
+            logging.error("❌ Failed to restore database from backup")
+
+
 async def init_database():
     """Инициализация БД с миграциями"""
     # Сначала создаем базовую структуру (если еще не создана)
@@ -57,7 +129,7 @@ def setup_backup_job(scheduler: AsyncIOScheduler, backup_service: BackupService)
         return
     
     def backup_job():
-        """Wrapper для синхронного вызова"""
+        """Враппер для синхронного вызова"""
         backup_service.create_backup()
     
     # Добавляем задачу в планировщик
@@ -84,6 +156,9 @@ def setup_backup_job(scheduler: AsyncIOScheduler, backup_service: BackupService)
 )
 async def start_bot():
     """Запуск бота с retry логикой"""
+    # ✅ ПРОВЕРКА И ВОССТАНОВЛЕНИЕ БД (ДО инициализации)
+    check_and_restore_database()
+    
     # Инициализация
     bot = Bot(token=BOT_TOKEN)
     storage = MemoryStorage()
