@@ -28,8 +28,10 @@ from handlers import (
     mass_edit_handlers,
     service_management_handlers,
     user_handlers,
+    universal_editor,  # ✅ P4: Universal Field Editor
 )
 from middlewares.rate_limit import RateLimitMiddleware
+from middlewares.message_cleanup import MessageCleanupMiddleware  # ✅ P3: Auto-cleanup
 from services.booking_service import BookingService
 from services.notification_service import NotificationService
 from utils.backup_service import BackupService
@@ -208,11 +210,15 @@ async def start_bot():
     dp["booking_service"] = booking_service
     dp["notification_service"] = notification_service
 
+    # ✅ P3: MIDDLEWARE ДЛЯ АВТООЧИСТКИ СТАРЫХ СООБЩЕНИЙ (ДО rate limit!)
+    dp.callback_query.middleware(MessageCleanupMiddleware(ttl_hours=48))
+    
     # Rate limiting middleware
     dp.message.middleware(RateLimitMiddleware(rate_limit=0.5))  # 0.5 сек между сообщениями
     dp.callback_query.middleware(RateLimitMiddleware(rate_limit=0.3))  # 0.3 сек между callback
 
     # Регистрация роутеров (ВАЖЕН ПОРЯДОК!)
+    dp.include_router(universal_editor.router)            # ✅ P4: Универсальный редактор (ПЕРВЫМ!)
     dp.include_router(service_management_handlers.router)  # 1. Управление услугами
     dp.include_router(admin_management_handlers.router)    # 2. Управление админами
     dp.include_router(mass_edit_handlers.router)          # 3. Массовое редактирование
@@ -226,7 +232,11 @@ async def start_bot():
     # Запуск планировщика
     scheduler.start()
 
-    logging.info("🚀 Bot started")
+    logging.info("🚀 Bot started with all Priority features:")
+    logging.info("   ✅ P1: Callback Validation (ready for integration)")
+    logging.info("   ✅ P2: Services Display (in booking_repository)")
+    logging.info("   ✅ P3: MessageCleanupMiddleware (active)")
+    logging.info("   ✅ P4: Universal Field Editor (active)")
 
     try:
         await dp.start_polling(bot, skip_updates=True)
