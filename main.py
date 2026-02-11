@@ -27,6 +27,10 @@ from config import (
     REDIS_HOST,
     REDIS_PASSWORD,
     REDIS_PORT,
+    SENTRY_DSN,
+    SENTRY_ENABLED,
+    SENTRY_ENVIRONMENT,
+    SENTRY_TRACES_SAMPLE_RATE,
 )
 from database.migrations.migration_manager import MigrationManager
 from database.migrations.versions.v004_add_services import AddServicesBackwardCompatible
@@ -58,6 +62,33 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Инициализация Sentry
+if SENTRY_ENABLED and SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        
+        sentry_logging = LoggingIntegration(
+            level=logging.INFO,
+            event_level=logging.ERROR
+        )
+        
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            environment=SENTRY_ENVIRONMENT,
+            traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+            integrations=[sentry_logging],
+            release=f"booking-bot@1.0.0",
+            attach_stacktrace=True,
+            send_default_pii=False,
+        )
+        
+        logger.info(f"Sentry initialized: {SENTRY_ENVIRONMENT} environment")
+    except ImportError:
+        logger.warning("Sentry SDK not installed. Install with: pip install sentry-sdk")
+    except Exception as e:
+        logger.error(f"Failed to initialize Sentry: {e}")
 
 
 def check_and_restore_database():
@@ -165,12 +196,10 @@ async def get_storage():
         try:
             import redis.asyncio as aioredis
             
-            # Формируем URL для Redis
             redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
             if REDIS_PASSWORD:
                 redis_url = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
             
-            # Проверяем подключение
             redis_client = aioredis.from_url(redis_url, decode_responses=True)
             await redis_client.ping()
             
@@ -183,15 +212,10 @@ async def get_storage():
             return storage
             
         except ImportError:
-            logger.warning(
-                "Redis library not installed. Install with: pip install redis"
-            )
+            logger.warning("Redis library not installed. Install with: pip install redis")
         except Exception as e:
-            logger.warning(
-                f"Failed to connect to Redis at {REDIS_HOST}:{REDIS_PORT}: {e}"
-            )
+            logger.warning(f"Failed to connect to Redis at {REDIS_HOST}:{REDIS_PORT}: {e}")
     
-    # Fallback к MemoryStorage
     logger.info("Using MemoryStorage (FSM states will be lost on restart)")
     return MemoryStorage()
 
@@ -240,12 +264,20 @@ async def start_bot():
     # Централизованная обработка ошибок
     @dp.errors()
     async def error_handler(event: ErrorEvent):
-        """Глобальный обработчик ошибок"""
+        """Глобальный обработчик ошибок с Sentry интеграцией"""
         logger.error(
             f"Critical error in update {event.update.update_id}: {event.exception}",
             exc_info=event.exception,
         )
-        # TODO: Интеграция с Sentry/другой системой мониторинга
+        
+        # Отправка в Sentry
+        if SENTRY_ENABLED:
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception(event.exception)
+            except Exception as e:
+                logger.error(f"Failed to send error to Sentry: {e}")
+        
         return True
 
     # Регистрация роутеров (порядок важен!)
@@ -263,13 +295,15 @@ async def start_bot():
 
     logger.info("Bot started successfully")
     logger.info("Features: Services, Audit Log, Universal Editor, Rate Limiting, Auto Cleanup")
+    
+    if SENTRY_ENABLED:
+        logger.info(f"Sentry monitoring active: {SENTRY_ENVIRONMENT}")
 
     try:
         await dp.start_polling(bot, skip_updates=True)
     finally:
         logger.info("Shutting down bot...")
         
-        # Закрываем Redis соединение если используется
         if isinstance(storage, RedisStorage):
             await storage.close()
             logger.info("Redis connection closed")
@@ -287,6 +321,16 @@ async def main():
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.critical(f"Bot crashed with critical error: {e}", exc_info=True)
+        
+        # Отправка критичной ошибки в Sentry
+        if SENTRY_ENABLED:
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception(e)
+                sentry_sdk.flush(timeout=2.0)
+            except Exception:
+                pass
+        
         sys.exit(1)
 
 
