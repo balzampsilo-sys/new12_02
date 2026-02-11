@@ -118,13 +118,13 @@ async def schedule_view(message: Message):
     today = now_local()
     start_date = today.strftime("%Y-%m-%d")
 
-    # Используем новый метод Database API
+    # ✅ ОБНОВЛЕНО: Используем новый метод Database API с услугами
     schedule = await Database.get_week_schedule(start_date, days=7)
 
     # Группируем по датам
     schedule_by_date = defaultdict(list)
-    for date_str, time_str, username in schedule:
-        schedule_by_date[date_str].append((time_str, username))
+    for date_str, time_str, username, service_name in schedule:
+        schedule_by_date[date_str].append((time_str, username, service_name))
 
     text = "📅 РАСПИСАНИЕ НА НЕДЕЛЮ\n\n"
 
@@ -136,8 +136,9 @@ async def schedule_view(message: Message):
         if bookings:
             day_name = DAY_NAMES[current_date.weekday()]
             text += f"📆 {current_date.strftime('%d.%m')} ({day_name})\n"
-            for time_str, username in bookings:
-                text += f"  🕒 {time_str} - @{username}\n"
+            for time_str, username, service_name in bookings:
+                # ✅ ДОБАВЛЕНО: отображение услуги
+                text += f"  🕒 {time_str} - @{username} ({service_name})\n"
             text += "\n"
 
     if len(text.split("\n")) == 3:  # только заголовок
@@ -163,11 +164,14 @@ async def clients_list(message: Message):
     if top_clients:
         text += "🏆 ТОП-10 по записям:\n\n"
         for i, (user_id, total) in enumerate(top_clients, 1):
-            text += f"{i}. ID {user_id}: {total} записей\n"
+            # ✅ ДОБАВЛЕНО: кликабельная ссылка на пользователя
+            user_link = f"[{user_id}](tg://user?id={user_id})"
+            text += f"{i}. {user_link}: {total} записей\n"
     else:
         text += "Пока нет записей"
 
-    await message.answer(text, reply_markup=ADMIN_MENU)
+    # ✅ ДОБАВЛЕНО: Markdown parse_mode
+    await message.answer(text, reply_markup=ADMIN_MENU, parse_mode="Markdown")
 
 
 @router.message(F.text == "⚡ Массовые операции")
@@ -219,10 +223,11 @@ async def export_data(message: Message):
     # Создаем CSV в памяти
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Дата", "Время", "Username"])
+    # ✅ ДОБАВЛЕНО: колонка Услуга
+    writer.writerow(["Дата", "Время", "Username", "Услуга"])
 
-    for date_str, time_str, username in bookings_data:
-        writer.writerow([date_str, time_str, username])
+    for date_str, time_str, username, service_name in bookings_data:
+        writer.writerow([date_str, time_str, username, service_name])
 
     # Отправляем файл
     csv_data = output.getvalue().encode("utf-8-sig")  # BOM для Excel
