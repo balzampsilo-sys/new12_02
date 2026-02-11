@@ -21,7 +21,13 @@ from config import (
 from database.queries import Database
 from database.migrations.migration_manager import MigrationManager
 from database.migrations.versions.v004_add_services import AddServicesBackwardCompatible
-from handlers import admin_handlers, booking_handlers, user_handlers, service_management_handlers
+from handlers import (
+    admin_handlers,
+    admin_management_handlers,
+    booking_handlers,
+    service_management_handlers,
+    user_handlers,
+)
 from middlewares.rate_limit import RateLimitMiddleware
 from services.booking_service import BookingService
 from services.notification_service import NotificationService
@@ -207,9 +213,10 @@ async def start_bot():
 
     # Регистрация роутеров (ВАЖЕН ПОРЯДОК!)
     dp.include_router(service_management_handlers.router)  # 1. Управление услугами
-    dp.include_router(admin_handlers.router)              # 2. Админ
-    dp.include_router(booking_handlers.router)            # 3. Бронирования
-    dp.include_router(user_handlers.router)               # 4. Пользователи последним (catch-all)
+    dp.include_router(admin_management_handlers.router)    # 2. Управление админами
+    dp.include_router(admin_handlers.router)              # 3. Админ
+    dp.include_router(booking_handlers.router)            # 4. Бронирования
+    dp.include_router(user_handlers.router)               # 5. Пользователи последним (catch-all)
 
     # Восстановление напоминаний
     await booking_service.restore_reminders()
