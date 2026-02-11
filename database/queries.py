@@ -70,29 +70,59 @@ class Database:
                 (user_id INTEGER PRIMARY KEY, message_id INTEGER, updated_at TEXT)"""
             )
 
-            # ✅ Sprint 3: Таблица администраторов
+            # Sprint 3: Таблица администраторов
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS admins
                 (user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 added_by INTEGER,
-                added_at TEXT NOT NULL)"""
+                added_at TEXT NOT NULL,
+                role TEXT DEFAULT 'moderator')"""
             )
 
-            # ✅ P2: Миграция - добавляем service_id если его еще нет
+            # Low Priority: Audit log
+            await db.execute(
+                """CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                target_id TEXT,
+                details TEXT,
+                timestamp TEXT NOT NULL
+            )"""
+            )
+
+            # P2: Миграция - добавляем service_id если его еще нет
             try:
                 async with db.execute("PRAGMA table_info(bookings)") as cursor:
                     columns = await cursor.fetchall()
                     column_names = [col[1] for col in columns]
-                    
+
                     if "service_id" not in column_names:
-                        logging.info("🔄 Добавляем service_id в существующую таблицу bookings...")
+                        logging.info(
+                            "🔄 Добавляем service_id в существующую таблицу bookings..."
+                        )
                         await db.execute(
                             "ALTER TABLE bookings ADD COLUMN service_id INTEGER DEFAULT 1"
                         )
                         logging.info("✅ service_id добавлен")
             except Exception as e:
                 logging.warning(f"⚠️ Не удалось добавить service_id: {e}")
+
+            # Low Priority: Добавляем role если его нет
+            try:
+                async with db.execute("PRAGMA table_info(admins)") as cursor:
+                    columns = await cursor.fetchall()
+                    column_names = [col[1] for col in columns]
+
+                    if "role" not in column_names:
+                        logging.info("🔄 Добавляем role в существующую таблицу admins...")
+                        await db.execute(
+                            "ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'moderator'"
+                        )
+                        logging.info("✅ role добавлен")
+            except Exception as e:
+                logging.warning(f"⚠️ Не удалось добавить role: {e}")
 
             # Индексы для производительности
             await db.execute(
@@ -139,6 +169,15 @@ class Database:
                 """CREATE INDEX IF NOT EXISTS idx_admins_added
                 ON admins(added_at)"""
             )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_admin ON audit_log(admin_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)"
+            )
 
             await db.commit()
             logging.info(
@@ -154,7 +193,7 @@ class Database:
     @staticmethod
     async def get_occupied_slots_for_day(date_str: str) -> List[Tuple[str, int]]:
         """Получить занятые слоты с длительностью
-        
+
         Returns:
             List[Tuple[time_str, duration_minutes]]
         """
@@ -181,22 +220,21 @@ class Database:
         booking_id: int, user_id: int
     ) -> Optional[Tuple[str, str, str]]:
         return await BookingRepository.get_booking_by_id(booking_id, user_id)
-    
+
     @staticmethod
     async def get_booking_service_id(booking_id: int) -> Optional[int]:
         """Получить service_id из бронирования
-        
+
         Args:
             booking_id: ID бронирования
-            
+
         Returns:
             service_id или None если не найдено
         """
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 async with db.execute(
-                    "SELECT service_id FROM bookings WHERE id=?",
-                    (booking_id,)
+                    "SELECT service_id FROM bookings WHERE id=?", (booking_id,)
                 ) as cursor:
                     result = await cursor.fetchone()
                     return result[0] if result else None
@@ -228,15 +266,15 @@ class Database:
     ) -> Tuple[bool, List[Dict]]:
         """
         Заблокировать слот с уведомлением пользователей.
-        
+
         Если слот занят - удаляет бронь и возвращает данные для уведомления.
-        
+
         Args:
             date_str: Дата в формате YYYY-MM-DD
             time_str: Время в формате HH:MM
             admin_id: ID администратора
             reason: Причина блокировки
-            
+
         Returns:
             Tuple[success: bool, cancelled_users: List[Dict]]
             cancelled_users = [{
@@ -320,8 +358,12 @@ class Database:
     # === АДМИНИСТРАТОРЫ (делегирование в AdminRepository) ===
 
     @staticmethod
-    async def get_all_admins() -> List[Tuple[int, str, str, str]]:
-        """Получить всех администраторов"""
+    async def get_all_admins() -> List[Tuple[int, str, str, str, str]]:
+        """Получить всех администраторов
+
+        Returns:
+            List[Tuple[user_id, username, added_by, added_at, role]]
+        """
         return await AdminRepository.get_all_admins()
 
     @staticmethod
@@ -331,12 +373,13 @@ class Database:
 
     @staticmethod
     async def add_admin(
-        user_id: int, 
-        username: Optional[str] = None, 
-        added_by: Optional[int] = None
+        user_id: int,
+        username: Optional[str] = None,
+        added_by: Optional[int] = None,
+        role: str = "moderator",
     ) -> bool:
         """Добавить администратора"""
-        return await AdminRepository.add_admin(user_id, username, added_by)
+        return await AdminRepository.add_admin(user_id, username, added_by, role)
 
     @staticmethod
     async def remove_admin(user_id: int) -> bool:
@@ -347,3 +390,13 @@ class Database:
     async def get_admin_count() -> int:
         """Количество админов"""
         return await AdminRepository.get_admin_count()
+
+    @staticmethod
+    async def get_admin_role(user_id: int) -> Optional[str]:
+        """Получить роль админа"""
+        return await AdminRepository.get_admin_role(user_id)
+
+    @staticmethod
+    async def update_admin_role(user_id: int, role: str) -> bool:
+        """Обновить роль админа"""
+        return await AdminRepository.update_admin_role(user_id, role)
