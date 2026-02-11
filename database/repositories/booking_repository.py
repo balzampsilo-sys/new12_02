@@ -236,16 +236,23 @@ class BookingRepository(BaseRepository):
 
     @staticmethod
     async def get_week_schedule(start_date: str, days: int = 7) -> List[Tuple]:
-        """Получить расписание на N дней"""
+        """Получить расписание на N дней
+        
+        Returns:
+            List[Tuple[date, time, username, service_name]]
+        """
         try:
             end_date = (
                 datetime.strptime(start_date, "%Y-%m-%d") + timedelta(days=days)
             ).strftime("%Y-%m-%d")
 
+            # ✅ ДОБАВЛЕН: JOIN с services для получения названия услуги
             return await BookingRepository._execute_query(
-                """SELECT date, time, username FROM bookings
-                WHERE date >= ? AND date <= ?
-                ORDER BY date, time""",
+                """SELECT b.date, b.time, b.username, COALESCE(s.name, 'Услуга') as service_name
+                FROM bookings b
+                LEFT JOIN services s ON b.service_id = s.id
+                WHERE b.date >= ? AND b.date <= ?
+                ORDER BY b.date, b.time""",
                 (start_date, end_date),
                 fetch_all=True,
             ) or []
