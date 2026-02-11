@@ -67,7 +67,7 @@ FEEDBACK_HOURS_AFTER = 2        # Запрос обратной связи че�
 
 # === НАСТРОЙКИ РЕЗЕРВНОГО КОПИРОВАНИЯ ===
 BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "true").lower() == "true"
-BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "6"))  # Каждые 6 часов
+BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "1"))  # ✅ ИЗМЕНЕНО: каждый 1 час
 BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))  # Хранить 30 дней
 BACKUP_DIR = os.getenv("BACKUP_DIR", "backups")  # Директория для бэкапов
 
