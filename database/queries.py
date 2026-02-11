@@ -209,6 +209,35 @@ class Database:
         return await BookingRepository.block_slot(date_str, time_str, admin_id, reason)
 
     @staticmethod
+    async def block_slot_with_notification(
+        date_str: str, time_str: str, admin_id: int, reason: str = None
+    ) -> Tuple[bool, List[Dict]]:
+        """
+        Заблокировать слот с уведомлением пользователей.
+        
+        Если слот занят - удаляет бронь и возвращает данные для уведомления.
+        
+        Args:
+            date_str: Дата в формате YYYY-MM-DD
+            time_str: Время в формате HH:MM
+            admin_id: ID администратора
+            reason: Причина блокировки
+            
+        Returns:
+            Tuple[success: bool, cancelled_users: List[Dict]]
+            cancelled_users = [{
+                'user_id': int,
+                'username': str,
+                'date': str,
+                'time': str,
+                'reason': str
+            }]
+        """
+        return await BookingRepository.block_slot_with_notification(
+            date_str, time_str, admin_id, reason
+        )
+
+    @staticmethod
     async def unblock_slot(date_str: str, time_str: str) -> bool:
         return await BookingRepository.unblock_slot(date_str, time_str)
 
