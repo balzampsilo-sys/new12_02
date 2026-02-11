@@ -5,6 +5,10 @@
 bookings.db
 *.db
 
+# Backups
+backups/*.sql.gz
+backups/*.db.backup
+
 # Virtual environment
 venv/
 env/
