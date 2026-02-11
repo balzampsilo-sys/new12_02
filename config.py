@@ -54,6 +54,13 @@ DB_MAX_RETRIES = int(os.getenv("DB_MAX_RETRIES", "3"))
 DB_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "0.5"))
 DB_RETRY_BACKOFF = float(os.getenv("DB_RETRY_BACKOFF", "2.0"))
 
+# === REDIS (FSM Storage) ===
+REDIS_ENABLED = os.getenv("REDIS_ENABLED", "False").lower() in ("true", "1", "yes")
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+
 # === BACKUP ===
 BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "True").lower() in ("true", "1", "yes")
 BACKUP_DIR = os.getenv("BACKUP_DIR", "backups")
