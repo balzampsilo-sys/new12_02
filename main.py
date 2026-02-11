@@ -25,6 +25,7 @@ from handlers import (
     admin_handlers,
     admin_management_handlers,
     booking_handlers,
+    mass_edit_handlers,
     service_management_handlers,
     user_handlers,
 )
@@ -214,9 +215,10 @@ async def start_bot():
     # Регистрация роутеров (ВАЖЕН ПОРЯДОК!)
     dp.include_router(service_management_handlers.router)  # 1. Управление услугами
     dp.include_router(admin_management_handlers.router)    # 2. Управление админами
-    dp.include_router(admin_handlers.router)              # 3. Админ
-    dp.include_router(booking_handlers.router)            # 4. Бронирования
-    dp.include_router(user_handlers.router)               # 5. Пользователи последним (catch-all)
+    dp.include_router(mass_edit_handlers.router)          # 3. Массовое редактирование
+    dp.include_router(admin_handlers.router)              # 4. Админ
+    dp.include_router(booking_handlers.router)            # 5. Бронирования
+    dp.include_router(user_handlers.router)               # 6. Пользователи последним (catch-all)
 
     # Восстановление напоминаний
     await booking_service.restore_reminders()

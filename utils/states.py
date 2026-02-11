@@ -36,3 +36,12 @@ class AdminStates(StatesGroup):
     
     # Состояния для управления администраторами
     awaiting_new_admin_id = State()
+
+
+class MassEditStates(StatesGroup):
+    """Состояния для массового редактирования"""
+    
+    awaiting_date_for_time_edit = State()
+    awaiting_new_time = State()
+    awaiting_date_for_service_edit = State()
+    awaiting_new_service = State()
