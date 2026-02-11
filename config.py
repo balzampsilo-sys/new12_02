@@ -21,7 +21,6 @@ ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
 if not ADMIN_IDS:
     sys.exit("❌ ADMIN_IDS not found in .env")
 
-# ✅ Rate limit для добавления админов
 MAX_ADMIN_ADDITIONS_PER_HOUR = int(os.getenv("MAX_ADMIN_ADDITIONS_PER_HOUR", "3"))
 
 # === BOOKINGS ===
@@ -39,9 +38,9 @@ FEEDBACK_HOURS_AFTER = int(os.getenv("FEEDBACK_HOURS_AFTER", "2"))
 # === SERVICE INFO ===
 SERVICE_LOCATION = os.getenv("SERVICE_LOCATION", "Москва, ул. Примерная, 1")
 
-# === ONBOARDING ✅ ADDED ===
-ONBOARDING_DELAY_SHORT = float(os.getenv("ONBOARDING_DELAY_SHORT", "1.5"))  # секунды
-ONBOARDING_DELAY_LONG = float(os.getenv("ONBOARDING_DELAY_LONG", "3.0"))  # секунды
+# === ONBOARDING ===
+ONBOARDING_DELAY_SHORT = float(os.getenv("ONBOARDING_DELAY_SHORT", "1.5"))
+ONBOARDING_DELAY_LONG = float(os.getenv("ONBOARDING_DELAY_LONG", "3.0"))
 
 # === WORK SCHEDULE ===
 WORK_HOURS_START = int(os.getenv("WORK_HOURS_START", "9"))
@@ -50,10 +49,10 @@ WORK_HOURS_END = int(os.getenv("WORK_HOURS_END", "18"))
 # === DATABASE ===
 DATABASE_PATH = os.getenv("DATABASE_PATH", "bookings.db")
 
-# === DATABASE RETRY LOGIC ✅ NEW ===
+# === DATABASE RETRY LOGIC ===
 DB_MAX_RETRIES = int(os.getenv("DB_MAX_RETRIES", "3"))
-DB_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "0.5"))  # seconds
-DB_RETRY_BACKOFF = float(os.getenv("DB_RETRY_BACKOFF", "2.0"))  # multiplier
+DB_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "0.5"))
+DB_RETRY_BACKOFF = float(os.getenv("DB_RETRY_BACKOFF", "2.0"))
 
 # === BACKUP ===
 BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "True").lower() in ("true", "1", "yes")
@@ -64,21 +63,25 @@ BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
 # === BROADCAST ===
 BROADCAST_DELAY = float(os.getenv("BROADCAST_DELAY", "0.05"))
 
+# === RATE LIMITING ===
+RATE_LIMIT_MESSAGE = float(os.getenv("RATE_LIMIT_MESSAGE", "0.5"))
+RATE_LIMIT_CALLBACK = float(os.getenv("RATE_LIMIT_CALLBACK", "0.3"))
+
 # === CALENDAR ===
 CALENDAR_MAX_MONTHS_AHEAD = int(os.getenv("CALENDAR_MAX_MONTHS_AHEAD", "3"))
 
-# === TIMEZONE ✅ FIXED: Use pytz for proper DST handling ===
-TIMEZONE = pytz.timezone("Europe/Moscow")  # Properly handles DST transitions
+# === TIMEZONE ===
+TIMEZONE = pytz.timezone("Europe/Moscow")
 
 # === DAY NAMES ===
 DAY_NAMES = [
-    "Пн",  # Monday
-    "Вт",  # Tuesday
-    "Ср",  # Wednesday
-    "Чт",  # Thursday
-    "Пт",  # Friday
-    "Сб",  # Saturday
-    "Вс",  # Sunday
+    "Пн",
+    "Вт",
+    "Ср",
+    "Чт",
+    "Пт",
+    "Сб",
+    "Вс",
 ]
 
 DAY_NAMES_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
