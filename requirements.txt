@@ -8,6 +8,7 @@ cachetools==5.3.2
 pytz==2023.3.post1
 redis==5.0.1
 sentry-sdk==1.40.0
+aiogram-calendar==1.0.0
 
 # Code quality and testing tools
 pre-commit==3.6.0
