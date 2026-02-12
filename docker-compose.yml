@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # Redis for FSM storage
+  redis:
+    image: redis:7-alpine
+    container_name: booking-bot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-botredis123}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - bot-network
+
+  # Telegram Bot
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: booking-bot
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Bot Configuration
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_IDS=${ADMIN_IDS}
+      
+      # Redis (automatic)
+      - REDIS_ENABLED=True
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-botredis123}
+      
+      # Sentry (optional)
+      - SENTRY_ENABLED=${SENTRY_ENABLED:-False}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}
+      
+      # Database
+      - DATABASE_PATH=/app/data/bookings.db
+      - BACKUP_ENABLED=True
+      - BACKUP_DIR=/app/backups
+      
+      # Other settings
+      - TZ=Europe/Moscow
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+    networks:
+      - bot-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  bot-network:
+    driver: bridge
