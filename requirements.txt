@@ -31,3 +31,6 @@ aiogram-calendar==0.6.0
 
 # Data Validation (aiogram 3.21 supports pydantic <2.11)
 pydantic==2.10.5
+
+# YAML Parser (for i18n system) - ✅ NEW
+PyYAML==6.0.2
