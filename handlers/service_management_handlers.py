@@ -15,6 +15,9 @@ from utils.validators import validate_id
 
 router = Router()
 
+# ✅ NEW: Доступные интервалы слотов
+SLOT_INTERVALS = [30, 60, 90, 120]
+
 
 # === ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ УСЛУГАМИ ===
 
@@ -101,11 +104,13 @@ async def service_view(callback: CallbackQuery):
 
     status = "✅ Активна" if service.is_active else "🚫 Отключена"
 
+    # ✅ NEW: Показываем интервал слотов
     text = (
         f"📋 УСЛУГА #{service.id}\n\n"
         f"📝 Название: {service.name}\n"
         f"📄 Описание: {service.description or 'не указано'}\n"
         f"⏱ Длительность: {service.duration_minutes} минут\n"
+        f"⏰ Интервал слотов: {service.slot_interval_minutes} мин\n"
         f"💰 Цена: {service.price}\n"
         f"🎨 Цвет: {service.color or 'не указан'}\n"
         f"📊 Порядок отображения: {service.display_order}\n"
@@ -149,7 +154,7 @@ async def service_create_start(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         "➕ СОЗДАНИЕ УСЛУГИ\n\n"
-        "Шаг 1/4: Введите название услуги\n"
+        "Шаг 1/5: Введите название услуги\n"
         "Например: Консультация 90 минут\n\n"
         "Для отмены отправьте /cancel"
     )
@@ -178,7 +183,7 @@ async def service_create_name(message: Message, state: FSMContext):
 
     await message.answer(
         f"✅ Название: {name}\n\n"
-        "Шаг 2/4: Введите описание услуги\n"
+        "Шаг 2/5: Введите описание услуги\n"
         "(или отправьте '-' чтобы пропустить)"
     )
 
@@ -203,7 +208,7 @@ async def service_create_description(message: Message, state: FSMContext):
 
     await message.answer(
         f"✅ Описание: {description or 'не указано'}\n\n"
-        "Шаг 3/4: Введите длительность в минутах\n"
+        "Шаг 3/5: Введите длительность в минутах\n"
         "Например: 60, 90, 120"
     )
 
@@ -226,13 +231,54 @@ async def service_create_duration(message: Message, state: FSMContext):
         return
 
     await state.update_data(duration_minutes=duration)
-    await state.set_state(AdminStates.service_awaiting_price)
+    
+    # ✅ NEW: Переходим к выбору интервала слотов!
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"{interval} мин", callback_data=f"interval:{interval}")
+             for interval in SLOT_INTERVALS[:2]],  # 30, 60
+            [InlineKeyboardButton(text=f"{interval} мин", callback_data=f"interval:{interval}")
+             for interval in SLOT_INTERVALS[2:]],  # 90, 120
+        ]
+    )
 
     await message.answer(
         f"✅ Длительность: {duration} минут\n\n"
-        "Шаг 4/4: Введите цену\n"
+        "Шаг 4/5: Выберите интервал между слотами:\n\n"
+        "⏰ Это определяет, как часто клиенты смогут записываться.\n\n"
+        "Примеры:\n"
+        "• 30 мин → слоты: 9:00, 9:30, 10:00...\n"
+        "• 60 мин → слоты: 9:00, 10:00, 11:00...\n"
+        "• 90 мин → слоты: 9:00, 10:30, 12:00...",
+        reply_markup=kb
+    )
+
+
+# ✅ NEW: Обработка выбора интервала
+@router.callback_query(F.data.startswith("interval:"))
+async def service_create_interval(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора интервала слотов"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        interval = int(callback.data.split(":")[1])
+        if interval not in SLOT_INTERVALS:
+            raise ValueError()
+    except (ValueError, IndexError):
+        await callback.answer("❌ Неверный интервал", show_alert=True)
+        return
+
+    await state.update_data(slot_interval_minutes=interval)
+    await state.set_state(AdminStates.service_awaiting_price)
+
+    await callback.message.edit_text(
+        f"✅ Интервал слотов: {interval} минут\n\n"
+        "Шаг 5/5: Введите цену\n"
         "Например: 3000 ₽ или Free"
     )
+    await callback.answer()
 
 
 @router.message(AdminStates.service_awaiting_price)
@@ -253,7 +299,7 @@ async def service_create_price(message: Message, state: FSMContext):
     services = await ServiceRepository.get_all_services(active_only=False)
     max_order = max([s.display_order for s in services], default=0)
 
-    # Создаем услугу
+    # ✅ NEW: Создаем услугу с slot_interval_minutes!
     service = Service(
         id=0,  # Будет присвоен автоматически
         name=data["name"],
@@ -263,6 +309,7 @@ async def service_create_price(message: Message, state: FSMContext):
         color=None,
         is_active=True,
         display_order=max_order + 1,
+        slot_interval_minutes=data.get("slot_interval_minutes", 60),  # ✅ NEW!
     )
 
     service_id = await ServiceRepository.create_service(service)
@@ -274,12 +321,13 @@ async def service_create_price(message: Message, state: FSMContext):
         f"ID: {service_id}\n"
         f"📝 {service.name}\n"
         f"⏱ {service.duration_minutes} минут\n"
+        f"⏰ Интервал: {service.slot_interval_minutes} мин\n"
         f"💰 {service.price}\n\n"
         "Услуга автоматически активирована.",
         reply_markup=ADMIN_MENU,
     )
 
-    logging.info(f"Admin {message.from_user.id} created service {service_id}: {service.name}")
+    logging.info(f"Admin {message.from_user.id} created service {service_id}: {service.name} (interval={service.slot_interval_minutes}min)")
 
 
 # === РЕДАКТИРОВАНИЕ УСЛУГИ ===
@@ -297,6 +345,7 @@ async def service_edit_menu(callback: CallbackQuery):
         await callback.answer("❌ Неверный ID", show_alert=True)
         return
 
+    # ✅ NEW: Добавлена кнопка редактирования интервала!
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -312,6 +361,11 @@ async def service_edit_menu(callback: CallbackQuery):
             [
                 InlineKeyboardButton(
                     text="✏️ Длительность", callback_data=f"edit_field:{service_id}:duration"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✏️ Интервал слотов", callback_data=f"edit_field:{service_id}:interval"
                 )
             ],
             [InlineKeyboardButton(text="✏️ Цена", callback_data=f"edit_field:{service_id}:price")],
@@ -342,6 +396,31 @@ async def service_edit_field_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Ошибка данных", show_alert=True)
         return
 
+    # ✅ NEW: Если редактируем интервал - показываем inline-кнопки!
+    if field == "interval":
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=f"{interval} мин", callback_data=f"update_interval:{service_id}:{interval}")
+                 for interval in SLOT_INTERVALS[:2]],
+                [InlineKeyboardButton(text=f"{interval} мин", callback_data=f"update_interval:{service_id}:{interval}")
+                 for interval in SLOT_INTERVALS[2:]],
+                [InlineKeyboardButton(text="🔙 Назад", callback_data=f"service_edit:{service_id}")],
+            ]
+        )
+        
+        await callback.message.edit_text(
+            f"✏️ ИЗМЕНЕНИЕ ИНТЕРВАЛА СЛОТОВ\n\n"
+            "Выберите новый интервал:\n\n"
+            "Примеры:\n"
+            "• 30 мин → 9:00, 9:30, 10:00...\n"
+            "• 60 мин → 9:00, 10:00, 11:00...\n"
+            "• 90 мин → 9:00, 10:30, 12:00...",
+            reply_markup=kb
+        )
+        await callback.answer()
+        return
+
+    # Остальные поля - текстовый ввод
     field_names = {
         "name": "название",
         "description": "описание",
@@ -358,6 +437,46 @@ async def service_edit_field_start(callback: CallbackQuery, state: FSMContext):
         "Для отмены отправьте /cancel"
     )
     await callback.answer()
+
+
+# ✅ NEW: Обработка изменения интервала через callback
+@router.callback_query(F.data.startswith("update_interval:"))
+async def service_update_interval(callback: CallbackQuery):
+    """Обновление интервала слотов"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        _, service_id_str, interval_str = callback.data.split(":", 2)
+        service_id = validate_id(service_id_str, "service_id")
+        interval = int(interval_str)
+        
+        if not service_id or interval not in SLOT_INTERVALS:
+            raise ValueError()
+    except (ValueError, IndexError):
+        await callback.answer("❌ Ошибка данных", show_alert=True)
+        return
+
+    # Получаем услугу
+    service = await ServiceRepository.get_service_by_id(service_id)
+    if not service:
+        await callback.answer("❌ Услуга не найдена", show_alert=True)
+        return
+
+    # Обновляем интервал
+    old_interval = service.slot_interval_minutes
+    service.slot_interval_minutes = interval
+    success = await ServiceRepository.update_service(service_id, service)
+
+    if success:
+        await callback.answer(f"✅ Интервал обновлён: {old_interval}→{interval} мин")
+        logging.info(f"Admin {callback.from_user.id} updated service {service_id} interval: {old_interval}→{interval}min")
+        
+        # Возвращаемся к просмотру услуги
+        await service_view(callback)
+    else:
+        await callback.answer("❌ Ошибка при сохранении", show_alert=True)
 
 
 @router.message(AdminStates.service_edit_value)
