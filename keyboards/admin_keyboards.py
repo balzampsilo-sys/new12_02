@@ -19,7 +19,10 @@ ADMIN_MENU = ReplyKeyboardMarkup(
             KeyboardButton(text="📊 Экспорт данных"),
         ],
         [
-            KeyboardButton(text="⚙️ Настройки"),  # ✅ NEW: System settings
+            KeyboardButton(text="📝 Редактор текстов"),  # ✅ NEW: i18n text editor
+            KeyboardButton(text="⚙️ Настройки"),
+        ],
+        [
             KeyboardButton(text="🔙 Выход из админки"),
         ],
     ],
