@@ -32,7 +32,7 @@ router = Router()
 @router.message(Command("admin"))
 async def admin_panel(message: Message):
     """Вход в админ-панель"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
@@ -42,7 +42,7 @@ async def admin_panel(message: Message):
 @router.message(F.text == "🔙 Выход из админки")
 async def exit_admin(message: Message):
     """Выход из админ-панели"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
@@ -59,7 +59,7 @@ async def cancel_command(message: Message, state: FSMContext):
     await state.clear()
 
     # Возвращаем в соответствующее меню в зависимости от прав
-    if is_admin(message.from_user.id):
+    if await is_admin(message.from_user.id):
         await message.answer("❌ Действие отменено", reply_markup=ADMIN_MENU)
     else:
         await message.answer("❌ Действие отменено", reply_markup=MAIN_MENU)
@@ -68,7 +68,7 @@ async def cancel_command(message: Message, state: FSMContext):
 @router.message(F.text == "📊 Dashboard")
 async def dashboard(message: Message):
     """Дашборд"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
@@ -87,7 +87,7 @@ async def dashboard(message: Message):
 @router.message(F.text == "💡 Рекомендации")
 async def recommendations(message: Message):
     """AI-рекомендации"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
@@ -107,7 +107,7 @@ async def recommendations(message: Message):
 @router.message(F.text == "📅 Расписание")
 async def schedule_view(message: Message):
     """Просмотр расписания на неделю"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
@@ -147,7 +147,7 @@ async def schedule_view(message: Message):
 @router.message(F.text == "👥 Клиенты")
 async def clients_list(message: Message):
     """Список активных клиентов"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
@@ -174,7 +174,7 @@ async def clients_list(message: Message):
 @router.message(F.text == "⚡ Массовые операции")
 async def mass_operations(message: Message):
     """Меню массовых операций"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
@@ -200,7 +200,7 @@ async def mass_operations(message: Message):
 @router.message(F.text == "📊 Экспорт данных")
 async def export_data(message: Message):
     """Экспорт данных в CSV"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
@@ -235,7 +235,7 @@ async def export_data(message: Message):
 @router.callback_query(F.data == "admin_broadcast")
 async def broadcast_start(callback: CallbackQuery, state: FSMContext):
     """Начало рассылки"""
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
@@ -253,7 +253,7 @@ async def broadcast_start(callback: CallbackQuery, state: FSMContext):
 async def broadcast_execute(message: Message, state: FSMContext):
     """Выполнение рассылки с rate limiting (SECURE)"""
     # CRITICAL SECURITY FIX: проверка админа в FSM-обработчике
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         await message.answer("❌ Нет доступа")
         logging.warning(
@@ -299,7 +299,7 @@ async def broadcast_execute(message: Message, state: FSMContext):
 @router.callback_query(F.data == "admin_cleanup")
 async def cleanup_old_bookings(callback: CallbackQuery):
     """Очистка старых записей"""
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
@@ -318,7 +318,7 @@ async def cleanup_old_bookings(callback: CallbackQuery):
 @router.callback_query(F.data == "admin_block_slots")
 async def block_slots_menu(callback: CallbackQuery):
     """Меню блокировки слотов"""
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
@@ -344,7 +344,7 @@ async def block_slots_menu(callback: CallbackQuery):
 @router.callback_query(F.data == "block_slot_start")
 async def block_slot_start(callback: CallbackQuery, state: FSMContext):
     """Начало блокировки слота"""
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
@@ -362,7 +362,7 @@ async def block_slot_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.awaiting_block_date)
 async def block_slot_date(message: Message, state: FSMContext):
     """Обработка даты для блокировки"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -404,7 +404,7 @@ async def block_slot_date(message: Message, state: FSMContext):
 @router.message(AdminStates.awaiting_block_time)
 async def block_slot_time(message: Message, state: FSMContext):
     """Обработка времени для блокировки"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -466,7 +466,7 @@ async def block_slot_time(message: Message, state: FSMContext):
 @router.message(AdminStates.awaiting_block_reason)
 async def block_slot_reason(message: Message, state: FSMContext):
     """Обработка причины и финальная блокировка с уведомлениями"""
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -590,7 +590,7 @@ async def block_slot_reason(message: Message, state: FSMContext):
 @router.callback_query(F.data == "unblock_slot_start")
 async def unblock_slot_menu(callback: CallbackQuery):
     """Меню разблокировки"""
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
@@ -625,7 +625,7 @@ async def unblock_slot_menu(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("unblock:"))
 async def unblock_slot_confirm(callback: CallbackQuery):
     """Разблокировка слота"""
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
@@ -649,7 +649,7 @@ async def unblock_slot_confirm(callback: CallbackQuery):
 @router.callback_query(F.data == "list_blocked_slots")
 async def list_blocked_slots(callback: CallbackQuery):
     """Список всех блокировок"""
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
