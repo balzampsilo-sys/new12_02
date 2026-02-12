@@ -5,7 +5,7 @@ import csv
 import io
 import logging
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -20,6 +20,7 @@ from aiogram.types import (
 
 from config import BROADCAST_DELAY, DAY_NAMES
 from database.queries import Database
+from database.repositories.settings_repository import SettingsRepository  # ✅ ДОБАВЛЕНО
 from keyboards.admin_keyboards import ADMIN_MENU
 from keyboards.user_keyboards import MAIN_MENU
 from services.analytics_service import AnalyticsService
@@ -373,8 +374,6 @@ async def block_slot_date(message: Message, state: FSMContext):
 
     # Валидация даты
     try:
-        from datetime import datetime
-
         date_obj = datetime.strptime(message.text, "%Y-%m-%d")
         date_str = message.text
 
@@ -431,16 +430,16 @@ async def block_slot_time(message: Message, state: FSMContext):
 
     # Валидация времени
     try:
-        from datetime import datetime
-
-        from config import WORK_HOURS_END, WORK_HOURS_START
-
         time_obj = datetime.strptime(message.text, "%H:%M")
         hour = time_obj.hour
 
-        if not (WORK_HOURS_START <= hour < WORK_HOURS_END):
+        # ✅ КРИТИЧНО: Получаем ДИНАМИЧЕСКИЕ рабочие часы из БД!
+        start_hour, end_hour = await SettingsRepository.get_work_hours()
+
+        # ✅ ИСПРАВЛЕНО: Используем динамические значения!
+        if not (start_hour <= hour < end_hour):
             await message.answer(
-                f"❌ Время должно быть в рабочих часах ({WORK_HOURS_START}:00 - {WORK_HOURS_END}:00)\n\n"
+                f"❌ Время должно быть в рабочих часах ({start_hour}:00 - {end_hour}:00)\n\n"
                 "Введите корректное время:"
             )
             return
@@ -480,13 +479,15 @@ async def block_slot_reason(message: Message, state: FSMContext):
 
     # Блокировка всего дня
     if time_str == "all":
-        from config import WORK_HOURS_END, WORK_HOURS_START
+        # ✅ КРИТИЧНО: Получаем ДИНАМИЧЕСКИЕ рабочие часы из БД!
+        start_hour, end_hour = await SettingsRepository.get_work_hours()
 
         blocked_count = 0
         failed_count = 0
         all_cancelled_users = []
 
-        for hour in range(WORK_HOURS_START, WORK_HOURS_END):
+        # ✅ ИСПРАВЛЕНО: Используем динамические границы!
+        for hour in range(start_hour, end_hour):
             slot_time = f"{hour:02d}:00"
             # ✅ ОБНОВЛЕНО: используем новый метод с уведомлениями
             success, cancelled_users = await Database.block_slot_with_notification(
