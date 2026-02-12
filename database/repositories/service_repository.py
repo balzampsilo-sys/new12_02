@@ -39,6 +39,7 @@ class ServiceRepository:
                         color=row["color"],
                         is_active=bool(row["is_active"]),
                         display_order=row["display_order"],
+                        slot_interval_minutes=row.get("slot_interval_minutes", 60),  # ✅ NEW
                     )
                     for row in rows
                 ]
@@ -62,16 +63,18 @@ class ServiceRepository:
                     color=row["color"],
                     is_active=bool(row["is_active"]),
                     display_order=row["display_order"],
+                    slot_interval_minutes=row.get("slot_interval_minutes", 60),  # ✅ NEW
                 )
 
     @staticmethod
     async def create_service(service: Service) -> int:
         """Создать новую услугу"""
         async with aiosqlite.connect(DATABASE_PATH) as db:
+            # ✅ NEW: Добавлен slot_interval_minutes
             cursor = await db.execute(
                 """INSERT INTO services
-                (name, description, duration_minutes, price, color, display_order, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (name, description, duration_minutes, price, color, display_order, is_active, slot_interval_minutes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     service.name,
                     service.description,
@@ -80,6 +83,7 @@ class ServiceRepository:
                     service.color,
                     service.display_order,
                     service.is_active,
+                    service.slot_interval_minutes,  # ✅ NEW
                 ),
             )
             await db.commit()
@@ -89,10 +93,11 @@ class ServiceRepository:
     async def update_service(service_id: int, service: Service) -> bool:
         """Обновить услугу"""
         async with aiosqlite.connect(DATABASE_PATH) as db:
+            # ✅ NEW: Добавлен slot_interval_minutes
             cursor = await db.execute(
                 """UPDATE services
                 SET name=?, description=?, duration_minutes=?, price=?,
-                    color=?, display_order=?, is_active=?
+                    color=?, display_order=?, is_active=?, slot_interval_minutes=?
                 WHERE id=?""",
                 (
                     service.name,
@@ -102,6 +107,7 @@ class ServiceRepository:
                     service.color,
                     service.display_order,
                     service.is_active,
+                    service.slot_interval_minutes,  # ✅ NEW
                     service_id,
                 ),
             )
