@@ -16,12 +16,11 @@ from config import (
     ERROR_SLOT_TAKEN,
     MAX_BOOKINGS_PER_USER,
     TIMEZONE,
-    WORK_HOURS_END,
-    WORK_HOURS_START,
 )
 from database.queries import Database
 from database.repositories.booking_repository import BookingRepository  # ✅ P2
 from database.repositories.service_repository import ServiceRepository
+from database.repositories.settings_repository import SettingsRepository  # ✅ ДОБАВЛЕНО
 from keyboards.user_keyboards import (
     MAIN_MENU,
     create_cancel_confirmation_keyboard,
@@ -186,10 +185,13 @@ async def select_day(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
+    # ✅ КРИТИЧНО: Получаем ДИНАМИЧЕСКИЕ рабочие часы из БД!
+    start_hour, end_hour = await SettingsRepository.get_work_hours()
+
     # ✅ ИСПРАВЛЕНО: Проверяем есть ли свободные слоты с учетом длительности
     occupied = await Database.get_occupied_slots_for_day(date_str)
     duration_hours = (service.duration_minutes + 59) // 60  # Округление вверх
-    total_slots = WORK_HOURS_END - WORK_HOURS_START - duration_hours + 1
+    total_slots = end_hour - start_hour - duration_hours + 1  # ✅ ИСПРАВЛЕНО: Динамический расчёт!
 
     if total_slots <= 0 or len(occupied) >= total_slots:
         await callback.answer(
@@ -261,10 +263,13 @@ async def confirm_time(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    # Проверяем рабочие часы
-    if not validate_work_hours(time_obj.hour, WORK_HOURS_START, WORK_HOURS_END):
+    # ✅ КРИТИЧНО: Получаем ДИНАМИЧЕСКИЕ рабочие часы из БД!
+    start_hour, end_hour = await SettingsRepository.get_work_hours()
+
+    # ✅ ИСПРАВЛЕНО: Проверяем рабочие часы с динамическими значениями!
+    if not validate_work_hours(time_obj.hour, start_hour, end_hour):
         await callback.answer(
-            f"❌ Время вне рабочих часов ({WORK_HOURS_START}-{WORK_HOURS_END})", show_alert=True
+            f"❌ Время вне рабочих часов ({start_hour}-{end_hour})", show_alert=True
         )
         await state.clear()
         return
