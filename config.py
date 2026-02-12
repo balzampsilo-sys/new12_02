@@ -1,25 +1,106 @@
 """Конфигурация"""
 
+import logging
 import os
 import sys
 from pathlib import Path
+from typing import List
 
 import pytz
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Setup basic logging early
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+# === VALIDATION HELPERS ===
+
+def validate_bot_token(token: str) -> bool:
+    """Validate Telegram bot token format
+    
+    Expected format: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+    
+    Args:
+        token: Bot token string
+        
+    Returns:
+        True if valid format, False otherwise
+    """
+    if not token:
+        return False
+    
+    parts = token.split(":")
+    if len(parts) != 2:
+        logger.error("BOT_TOKEN must have format: 123456789:ABCdef...")
+        return False
+    
+    bot_id, token_part = parts
+    
+    if not bot_id.isdigit():
+        logger.error("BOT_TOKEN bot ID must be numeric")
+        return False
+    
+    if len(token_part) < 30:
+        logger.error("BOT_TOKEN secret part too short (min 30 chars)")
+        return False
+    
+    return True
+
+
+def parse_admin_ids(ids_str: str) -> List[int]:
+    """Parse ADMIN_IDS with validation and error handling
+    
+    Args:
+        ids_str: Comma-separated string of user IDs
+        
+    Returns:
+        List of valid admin IDs (positive integers)
+        
+    Raises:
+        SystemExit if no valid IDs found
+    """
+    admin_ids = []
+    
+    for item in ids_str.split(","):
+        item = item.strip()
+        if not item:
+            continue
+            
+        try:
+            user_id = int(item)
+            if user_id <= 0:
+                logger.warning(f"⚠️ Invalid admin ID (must be > 0): {item}")
+                continue
+            admin_ids.append(user_id)
+        except ValueError:
+            logger.warning(f"⚠️ Invalid admin ID format (not a number): {item}")
+            continue
+    
+    if not admin_ids:
+        logger.error("❌ No valid admin IDs found in ADMIN_IDS")
+        sys.exit("❌ ADMIN_IDS must contain at least one valid positive integer")
+    
+    logger.info(f"✅ Loaded {len(admin_ids)} admin ID(s): {admin_ids}")
+    return admin_ids
+
+
 # === BOT ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     sys.exit("❌ BOT_TOKEN not found in .env")
 
+if not validate_bot_token(BOT_TOKEN):
+    sys.exit("❌ BOT_TOKEN has invalid format. Expected: 123456789:ABCdef...")
+
 # === ADMIN ===
 ADMIN_IDS_STR = os.getenv("ADMIN_IDS", "")
-ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
-
-if not ADMIN_IDS:
-    sys.exit("❌ ADMIN_IDS not found in .env")
+ADMIN_IDS = parse_admin_ids(ADMIN_IDS_STR)  # ✅ Safe parsing with validation
 
 MAX_ADMIN_ADDITIONS_PER_HOUR = int(os.getenv("MAX_ADMIN_ADDITIONS_PER_HOUR", "3"))
 
@@ -138,7 +219,7 @@ ROLE_PERMISSIONS = {
         "manage_slots": True,
         "edit_services": True,
         "export_data": True,
-        "manage_settings": True,  # ✅ NEW: System settings
+        "manage_settings": True,
     },
     ROLE_MODERATOR: {
         "manage_admins": False,
@@ -147,6 +228,6 @@ ROLE_PERMISSIONS = {
         "manage_slots": True,
         "edit_services": True,
         "export_data": False,
-        "manage_settings": False,  # ✅ NEW: Only Super Admin
+        "manage_settings": False,
     },
 }
