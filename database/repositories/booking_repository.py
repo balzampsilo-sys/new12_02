@@ -124,6 +124,65 @@ class BookingRepository(BaseRepository):
             return {}
 
     @staticmethod
+    async def get_bookings_for_date(date_str: str) -> List[Dict]:
+        """Получить все записи на конкретную дату (для напоминаний)
+
+        Args:
+            date_str: Дата в формате YYYY-MM-DD
+
+        Returns:
+            List[Dict] с полями:
+                - user_id: int
+                - username: str
+                - time: str
+                - service_id: int
+                - service_name: str
+                - duration_minutes: int
+                - created_at: str
+        """
+        try:
+            rows = await BookingRepository._execute_query(
+                """SELECT
+                    b.user_id,
+                    b.username,
+                    b.time,
+                    b.service_id,
+                    COALESCE(s.name, 'Консультация') as service_name,
+                    COALESCE(s.duration_minutes, 60) as duration_minutes,
+                    b.created_at
+                FROM bookings b
+                LEFT JOIN services s ON b.service_id = s.id
+                WHERE b.date = ?
+                ORDER BY b.time""",
+                (date_str,),
+                fetch_all=True,
+            )
+
+            if not rows:
+                return []
+
+            # Преобразуем в список словарей
+            bookings = []
+            for row in rows:
+                bookings.append(
+                    {
+                        "user_id": row[0],
+                        "username": row[1] or f"ID{row[0]}",
+                        "time": row[2],
+                        "service_id": row[3],
+                        "service_name": row[4],
+                        "duration_minutes": row[5],
+                        "created_at": row[6],
+                    }
+                )
+
+            return bookings
+
+        except Exception as e:
+            logging.error(f"Error getting bookings for date {date_str}: {e}")
+            return []
+
+    @staticmethod
     async def get_user_bookings(user_id: int) -> List[Tuple]:
         """Получить активные (будущие) записи пользователя С ИНФОРМАЦИЕЙ ОБ УСЛУГЕ
 
