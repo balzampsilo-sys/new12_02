@@ -2,6 +2,8 @@
 
 This module provides comprehensive input validation using Pydantic v2.
 All user inputs and critical operations are validated before processing.
+
+P0 Fix: Use config values instead of hardcoded limits for flexibility.
 """
 
 import re
@@ -9,6 +11,9 @@ from datetime import date, datetime, time
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# P0 FIX: Import config values instead of hardcoding
+from config import WORK_HOURS_START, WORK_HOURS_END
 
 
 class TimeSlotInput(BaseModel):
@@ -63,11 +68,15 @@ class BookingCreateInput(BaseModel):
     @field_validator("time")
     @classmethod
     def validate_time(cls, v: time) -> time:
-        """Validate time format"""
+        """Validate time format and work hours (P0 FIX: use config)"""
         if v.minute != 0 or v.second != 0:
             raise ValueError("Time must be on the hour")
-        if not (9 <= v.hour < 18):  # Default work hours
-            raise ValueError("Time must be within work hours")
+        
+        # P0 FIX: Use config values instead of hardcoded 9-18
+        if not (WORK_HOURS_START <= v.hour < WORK_HOURS_END):
+            raise ValueError(
+                f"Time must be within work hours ({WORK_HOURS_START:02d}:00 - {WORK_HOURS_END:02d}:00)"
+            )
         return v
 
     @model_validator(mode="after")
