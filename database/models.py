@@ -17,6 +17,7 @@ class Service:
     color: str = "#4CAF50"
     is_active: bool = True
     display_order: int = 0
+    slot_interval_minutes: int = 60  # ✅ NEW: Интервал между слотами (30/60/90/120)
     created_at: Optional[datetime] = None
 
     def get_duration_display(self) -> str:
@@ -30,6 +31,20 @@ class Service:
             return f"{hours} ч"
         else:
             return f"{minutes} мин"
+
+    def get_slot_interval_display(self) -> str:
+        """Отображение интервала слотов"""
+        if self.slot_interval_minutes >= 60:
+            hours = self.slot_interval_minutes // 60
+            minutes = self.slot_interval_minutes % 60
+            if minutes:
+                return f"{hours} ч {minutes} мин"
+            return f"{hours} ч"
+        return f"{self.slot_interval_minutes} мин"
+
+    def validate_slot_interval(self) -> bool:
+        """Проверка что интервал слотов валидный"""
+        return self.slot_interval_minutes in [30, 60, 90, 120]
 
 
 @dataclass
