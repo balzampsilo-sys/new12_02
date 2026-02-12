@@ -34,6 +34,7 @@ from config import (
 )
 from database.migrations.migration_manager import MigrationManager
 from database.migrations.versions.v004_add_services import AddServicesBackwardCompatible
+from database.migrations.versions.v006_add_booking_history import AddBookingHistory
 from database.queries import Database
 from handlers import (
     admin_handlers,
@@ -159,6 +160,7 @@ async def init_database():
 
     manager = MigrationManager(DATABASE_PATH)
     manager.register(AddServicesBackwardCompatible)
+    manager.register(AddBookingHistory)  # P0: История изменений записей
     await manager.migrate()
 
     logger.info("Database initialized with migrations")
@@ -349,7 +351,10 @@ async def start_bot():
     scheduler.start()
 
     logger.info("Bot started successfully")
-    logger.info("Features: Services, Audit Log, Universal Editor, Rate Limiting, Auto Cleanup, Reminders")
+    logger.info(
+        "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
+        "Auto Cleanup, Reminders, Booking History"
+    )
     
     if SENTRY_ENABLED:
         logger.info(f"Sentry monitoring active: {SENTRY_ENVIRONMENT}")
