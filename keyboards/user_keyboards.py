@@ -156,7 +156,7 @@ async def create_month_calendar(year: int, month: int) -> InlineKeyboardMarkup:
 async def create_time_slots(
     date_str: str, state: FSMContext = None, service=None
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """Слоты времени с учетом длительности услуги И ИНТЕРВАЛА СЛОТОВ
+    """Слоты времени с учетом длительности услуги и ГЛОБАЛЬНОГО интервала
 
     Args:
         date_str: Дата в формате YYYY-MM-DD
@@ -190,8 +190,9 @@ async def create_time_slots(
     # Длительность услуги в минутах (по умолчанию 60)
     duration_minutes = service.duration_minutes if service else 60
     
-    # ✅ NEW: Интервал между слотами из услуги (30/60/90/120 мин)
-    slot_interval = service.slot_interval_minutes if service else 60
+    # ✅ КРИТИЧНО: Интервал слотов - ГЛОБАЛЬНАЯ настройка из БД!
+    # НЕ из услуги! Это сетка времени для всех услуг.
+    slot_interval = await SettingsRepository.get_slot_interval()
 
     # ✅ КРИТИЧНО: Получаем ДИНАМИЧЕСКИЕ рабочие часы из БД!
     start_hour, end_hour = await SettingsRepository.get_work_hours()
@@ -201,21 +202,23 @@ async def create_time_slots(
 
     free_count = 0
     
-    # ✅ NEW: Генерируем слоты с учётом интервала услуги!
-    # Конвертируем рабочие часы в минуты
+    # ✅ НОВОЕ: Генерируем слоты с ГЛОБАЛЬНЫМ интервалом!
+    # Например: 09:00, 09:30, 10:00, 10:30... (при interval=30)
     start_minutes = start_hour * 60
     end_minutes = end_hour * 60
     
-    # Генерируем слоты с шагом slot_interval
+    # Подсчитываем общее количество слотов
+    total_slots = (end_minutes - start_minutes) // slot_interval
+
+    # ✅ НОВОЕ: Итерируемся по минутам с шагом slot_interval
     current_minutes = start_minutes
-    total_slots = 0
     
     while current_minutes < end_minutes:
-        total_slots += 1
+        # Преобразуем минуты в часы и минуты
         hour = current_minutes // 60
         minute = current_minutes % 60
         time_str = f"{hour:02d}:{minute:02d}"
-        
+
         # Создаем datetime для текущего слота
         slot_datetime_naive = datetime.combine(
             date_obj.date(), datetime.strptime(time_str, "%H:%M").time()
@@ -276,7 +279,7 @@ async def create_time_slots(
 
         keyboard[-1].append(InlineKeyboardButton(text=button_text, callback_data=callback_data))
         
-        # ✅ NEW: Переходим к следующему слоту с учётом интервала
+        # ✅ НОВОЕ: Переход к следующему слоту
         current_minutes += slot_interval
 
     # ✅ УЛУЧШЕНО: Если нет свободных слотов
@@ -296,13 +299,15 @@ async def create_time_slots(
         service_info = ""
         if service:
             service_info = f"\n📝 {service.name} ({service.duration_minutes} мин)\n"
-            # ✅ NEW: Показываем интервал, если отличается от длительности
-            if slot_interval != duration_minutes:
-                service_info += f"⏰ Интервал слотов: {slot_interval} мин\n"
+
+        # ✅ НОВОЕ: Показываем интервал слотов если не 60 мин
+        interval_info = ""
+        if slot_interval < 60:
+            interval_info = f"⏱ Интервал: {slot_interval} мин\n"
 
         text = (
             "📍 ШАГ 3 из 4: Выберите время\n\n"
-            f"📅 {date_obj.strftime('%d.%m.%Y')} ({day_name}){service_info}"
+            f"📅 {date_obj.strftime('%d.%m.%Y')} ({day_name}){service_info}{interval_info}"
             f"🟢 Свободно: {free_count}/{total_slots} слотов\n"
         )
 
