@@ -57,6 +57,7 @@ services:
       - ./data:/app/data
       - ./backups:/app/backups
       - ./logs:/app/logs
+      - ./locales:/app/locales  # ✅ NEW: i18n YAML hot-reload
     networks:
       - bot-network
     logging:
