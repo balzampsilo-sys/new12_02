@@ -36,7 +36,8 @@ from database.migrations.migration_manager import MigrationManager
 from database.migrations.versions.v004_add_services import AddServicesBackwardCompatible
 from database.migrations.versions.v006_add_booking_history import AddBookingHistory
 from database.migrations.versions.v007_fix_booking_history_constraints import FixBookingHistoryConstraints
-from database.migrations.versions.v008_add_slot_interval import AddSlotInterval  # ✅ NEW
+from database.migrations.versions.v008_add_slot_interval import AddSlotInterval
+from database.migrations.versions.v009_text_templates import V009TextTemplates  # ✅ NEW: i18n migration
 from database.queries import Database
 from handlers import (
     admin_handlers,
@@ -50,11 +51,13 @@ from handlers import (
     universal_editor,
     user_handlers,
 )
+from handlers.admin import text_editor  # ✅ NEW: Text editor for i18n
 from middlewares.message_cleanup import MessageCleanupMiddleware
 from middlewares.rate_limit import RateLimitMiddleware
 from services.booking_service import BookingService
 from services.notification_service import NotificationService
 from services.reminder_service import ReminderService
+from services.text_manager import HybridTextManager  # ✅ NEW: Hybrid text manager
 from utils.backup_service import BackupService
 from utils.retry import async_retry
 
@@ -166,7 +169,8 @@ async def init_database():
     manager.register(AddServicesBackwardCompatible)
     manager.register(AddBookingHistory)  # P0: История изменений записей
     manager.register(FixBookingHistoryConstraints)  # P0: Исправление CHECK constraint
-    manager.register(AddSlotInterval)  # ✅ P0: Добавление slot_interval_minutes
+    manager.register(AddSlotInterval)  # P0: Добавление slot_interval_minutes
+    manager.register(V009TextTemplates)  # ✅ NEW: Таблица локализации (i18n)
     await manager.migrate()
 
     logger.info("Database initialized with migrations")
@@ -349,6 +353,9 @@ async def start_bot():
     )
 
     await init_database()
+    
+    # ✅ NEW: Инициализация HybridTextManager (загрузка YAML)
+    await HybridTextManager.init()
 
     if BACKUP_ENABLED:
         backup_service = BackupService(
@@ -392,6 +399,7 @@ async def start_bot():
         return True
 
     # Регистрация роутеров (порядок важен!)
+    dp.include_router(text_editor.router)  # ✅ NEW: Admin text editor FIRST
     dp.include_router(universal_editor.router)
     dp.include_router(service_management_handlers.router)
     dp.include_router(admin_management_handlers.router)
@@ -409,9 +417,10 @@ async def start_bot():
     logger.info("Bot started successfully")
     logger.info(
         "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
-        "Auto Cleanup, Reminders, Booking History, Settings, Calendar, Slot Intervals"
+        "Auto Cleanup, Reminders, Booking History, Settings, Calendar, Slot Intervals, "
+        "Hybrid i18n (YAML + DB with Admin UI)"  # ✅ NEW
     )
-    logger.info("✅ P0 Fixes Applied: Async Scheduler + Redis Leak + Missing Handlers + v008 Migration")
+    logger.info("✅ P0 Fixes Applied: Async Scheduler + Redis Leak + v008-v009 Migrations + i18n System")
     
     if SENTRY_ENABLED:
         logger.info(f"Sentry monitoring active: {SENTRY_ENVIRONMENT}")
