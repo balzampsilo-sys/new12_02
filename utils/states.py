@@ -40,6 +40,13 @@ class AdminStates(StatesGroup):
     block_dates_start = State()
     block_dates_end = State()
     block_dates_reason = State()
+    
+    # ✅ Управление услугами (для service_management_handlers.py)
+    service_awaiting_name = State()  # Создание: название
+    service_awaiting_description = State()  # Создание: описание
+    service_awaiting_duration = State()  # Создание: длительность
+    service_awaiting_price = State()  # Создание: цена
+    service_edit_value = State()  # Редактирование: новое значение
 
 
 class MassEditStates(StatesGroup):
@@ -59,7 +66,7 @@ class MassEditStates(StatesGroup):
 
 
 class ServiceStates(StatesGroup):
-    """Состояния для управления услугами"""
+    """Состояния для управления услугами (запасной класс)"""
     # Добавление услуги
     awaiting_service_name = State()
     awaiting_service_description = State()
