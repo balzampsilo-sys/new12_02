@@ -4,6 +4,8 @@ Priority: P0 (Critical)
 Reason: Необходимо для гибкой настройки интервалов слотов для каждой услуги
 """
 
+import logging
+
 import aiosqlite
 
 from database.migrations.migration_manager import Migration
@@ -15,15 +17,17 @@ class AddSlotInterval(Migration):
     version = 8
     description = "Add slot_interval_minutes column to services table"
 
-    async def up(self, db: aiosqlite.Connection) -> None:
+    async def upgrade(self, db: aiosqlite.Connection) -> None:
         """Применение миграции"""
+        logging.info(f"[v{self.version}] Adding slot_interval_minutes column...")
+        
         # Проверяем, есть ли уже колонка
         cursor = await db.execute("PRAGMA table_info(services)")
         columns = await cursor.fetchall()
         column_names = [col[1] for col in columns]
         
         if "slot_interval_minutes" in column_names:
-            print(f"  ✅ Column slot_interval_minutes already exists, skipping")
+            logging.info(f"[v{self.version}] ✅ Column already exists, skipping")
             return
 
         # Добавляем колонку с значением по умолчанию 60 минут
@@ -34,15 +38,16 @@ class AddSlotInterval(Migration):
         # Обновляем существующие записи
         await db.execute("UPDATE services SET slot_interval_minutes = 60 WHERE slot_interval_minutes IS NULL")
         
-        await db.commit()
-        print(f"  ✅ Added column slot_interval_minutes with default value 60")
+        logging.info(f"[v{self.version}] ✅ Added column with default value 60")
 
-    async def down(self, db: aiosqlite.Connection) -> None:
+    async def downgrade(self, db: aiosqlite.Connection) -> None:
         """Откат миграции
         
         ⚠️ SQLite не поддерживает DROP COLUMN до версии 3.35.0
         Поэтому требуется пересоздание таблицы
         """
+        logging.info(f"[v{self.version}] Removing slot_interval_minutes column...")
+        
         # 1. Создаем временную таблицу без колонки
         await db.execute(
             """
@@ -75,5 +80,4 @@ class AddSlotInterval(Migration):
         # 4. Переименовываем временную таблицу
         await db.execute("ALTER TABLE services_backup RENAME TO services")
 
-        await db.commit()
-        print(f"  ✅ Removed column slot_interval_minutes")
+        logging.info(f"[v{self.version}] ✅ Column removed")
