@@ -1,17 +1,23 @@
 """Hybrid Text Manager - Гибридная система локализации
 
 Приоритеты:
-1. БД (text_templates) - кастомизация через админ-панель
-2. YAML (locales/*.yaml) - дефолтные тексты
-3. Hardcoded - fallback для критичных сообщений
+1. Текст из БД (is_customized=1) - кастомизация админом
+2. Текст из YAML - дефолтные значения
+3. Hardcoded fallback - на случай ошибки
+
+Преимущества:
+- ✅ Кэширование (TTL 5 мин)
+- ✅ Hot reload без рестарта
+- ✅ История изменений
+- ✅ Поддержка параметров {date}, {time}, и т.д.
 """
 
 import logging
-import yaml
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
+import yaml
 from cachetools import TTLCache
 
 from config import DATABASE_PATH
@@ -19,24 +25,24 @@ from config import DATABASE_PATH
 logger = logging.getLogger(__name__)
 
 
-class HybridTextManager:
-    """Hybrid text manager with DB + YAML + Hardcoded fallbacks"""
+class TextManager:
+    """Гибридный текстовый менеджер с приоритетами"""
 
-    # Кэш на 5 минут (тексты не меняются часто)
-    _cache: TTLCache = TTLCache(maxsize=500, ttl=300)
+    # Кэш на 5 минут (300с)
+    _cache: TTLCache = TTLCache(maxsize=1000, ttl=300)
 
-    # YAML трансляции (загружаются один раз)
+    # YAML трансляции (load once)
     _yaml_translations: Dict[str, Dict] = {}
     _yaml_loaded = False
 
-    # Hardcoded fallbacks для критичных сообщений
-    _hardcoded_defaults = {
+    # Hardcoded fallbacks (на случай аварии)
+    _fallbacks = {
         "common.back": "⬅️ Назад",
         "common.cancel": "❌ Отмена",
-        "common.error": "❌ Ошибка",
-        "common.loading": "⏳ Загрузка...",
-        "errors.unknown_error": "❌ Неизвестная ошибка",
-        "system.unauthorized": "❌ У вас нет доступа",
+        "common.confirm": "✅ Подтвердить",
+        "booking.button": "📅 Записаться",
+        "booking.errors.slot_taken": "❌ Это время уже занято",
+        "errors.generic": "❌ Произошла ошибка",
     }
 
     @classmethod
@@ -57,18 +63,15 @@ class HybridTextManager:
 
             try:
                 with open(yaml_file, "r", encoding="utf-8") as f:
-                    cls._yaml_translations[lang] = yaml.safe_load(f) or {}
-                logger.info(f"✅ Loaded {lang} translations from {yaml_file.name}")
+                    cls._yaml_translations[lang] = yaml.safe_load(f)
+                logger.info(f"✅ Loaded YAML translations: {lang}")
             except Exception as e:
                 logger.error(f"❌ Error loading {yaml_file}: {e}")
 
         cls._yaml_loaded = True
-        logger.info(
-            f"✅ Localization loaded: {list(cls._yaml_translations.keys())} ({len(cls._cache)} keys cached)"
-        )
 
     @classmethod
-    def _get_from_yaml(cls, key: str, lang: str) -> Optional[str]:
+    def _get_yaml_text(cls, key: str, lang: str = "ru") -> Optional[str]:
         """Получить текст из YAML
 
         Args:
@@ -81,14 +84,14 @@ class HybridTextManager:
         if not cls._yaml_loaded:
             cls._load_yaml()
 
-        translations = cls._yaml_translations.get(lang, {})
-        if not translations:
+        if lang not in cls._yaml_translations:
             return None
 
-        # Навигация по вложенным dict: "booking.success" -> translations['booking']['success']
+        # Разбираем ключ: "booking.errors.slot_taken" -> ['booking', 'errors', 'slot_taken']
         keys = key.split(".")
-        value = translations
 
+        # Навигируемся по вложенным dict
+        value = cls._yaml_translations[lang]
         for k in keys:
             if isinstance(value, dict):
                 value = value.get(k)
@@ -98,8 +101,8 @@ class HybridTextManager:
         return str(value) if value is not None else None
 
     @classmethod
-    async def _get_from_db(cls, key: str, lang: str) -> Optional[str]:
-        """Получить текст из БД (кастомизация)
+    async def _get_db_text(cls, key: str, lang: str = "ru") -> Optional[str]:
+        """Получить текст из БД (только кастомизированные)
 
         Args:
             key: Ключ текста
@@ -111,117 +114,115 @@ class HybridTextManager:
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 column = f"text_{lang}"
-                query = f"SELECT {column}, is_custom FROM text_templates WHERE key = ?"
+                query = f"SELECT {column} FROM text_templates WHERE key = ? AND is_customized = 1"
 
                 async with db.execute(query, (key,)) as cursor:
                     row = await cursor.fetchone()
-                    if row and row[0]:
-                        # Возвращаем только если is_custom=1 (кастомизировано)
-                        if row[1] == 1:
-                            return row[0]
-                    return None
+                    return row[0] if row else None
         except Exception as e:
             logger.error(f"Error loading text from DB {key}: {e}")
             return None
 
     @classmethod
-    async def get(
-        cls, key: str, lang: str = "ru", default: str = None, **kwargs
-    ) -> str:
-        """Получить текст с приоритетами: БД > YAML > Hardcoded > Default
+    async def get(cls, key: str, lang: str = "ru", **kwargs) -> str:
+        """Получить текст с приоритетами: БД > YAML > Fallback
 
         Args:
             key: Ключ текста (например, 'booking.success')
             lang: Язык ('ru' или 'en')
-            default: Дефолтное значение если не найдено
-            **kwargs: Параметры для форматирования (например, {date}, {time})
+            **kwargs: Параметры для форматирования
 
         Returns:
             Отформатированный текст
 
         Example:
             >>> await TextManager.get('booking.success', date='10.02.2026', time='14:00')
-            '✅ Вы записаны на 10.02.2026 в 14:00'
+            '✅ Вы успешно записаны!\n\n📅 10.02.2026\n🕒 14:00'
         """
         cache_key = f"{key}:{lang}"
 
-        # Проверяем кэш
+        # 1. Проверяем кэш
         if cache_key in cls._cache:
             template = cls._cache[cache_key]
         else:
-            # 1. Приоритет 1: БД (кастомизация)
-            template = await cls._get_from_db(key, lang)
-
-            # 2. Приоритет 2: YAML (дефолты)
-            if not template:
-                template = cls._get_from_yaml(key, lang)
-
-            # 3. Приоритет 3: Hardcoded fallbacks
-            if not template:
-                template = cls._hardcoded_defaults.get(key)
-
-            # 4. Приоритет 4: Default аргумент
-            if not template:
-                template = default or f"[{key}]"
-                logger.warning(f"⚠️ Text not found: {key} ({lang})")
-
-            # Кэшируем
-            cls._cache[cache_key] = template
+            # 2. Проверяем БД (кастомизация)
+            db_text = await cls._get_db_text(key, lang)
+            if db_text:
+                template = db_text
+                cls._cache[cache_key] = template
+                logger.debug(f"🟢 Text from DB: {key}")
+            else:
+                # 3. Проверяем YAML (дефолты)
+                yaml_text = cls._get_yaml_text(key, lang)
+                if yaml_text:
+                    template = yaml_text
+                    cls._cache[cache_key] = template
+                    logger.debug(f"🟡 Text from YAML: {key}")
+                else:
+                    # 4. Fallback
+                    template = cls._fallbacks.get(key, f"[{key}]")
+                    logger.warning(f"⚠️ Text not found, using fallback: {key}")
 
         # Форматируем если есть параметры
         if kwargs:
             try:
                 return template.format(**kwargs)
             except KeyError as e:
-                logger.error(f"❌ Missing parameter {e} in template '{key}'")
-                # Возвращаем неотформатированный текст
+                logger.error(f"Missing parameter {e} in template {key}")
                 return template
-            except Exception as e:
-                logger.error(f"❌ Error formatting template '{key}': {e}")
-                return template
-
         return template
 
     @classmethod
     async def update(
         cls, key: str, text: str, lang: str = "ru", admin_id: int = None
-    ) -> bool:
+    ) -> Tuple[bool, str]:
         """Обновить текст в БД и сбросить кэш
 
         Args:
             key: Ключ текста
             text: Новый текст
             lang: Язык
-            admin_id: ID админа, который обновил
+            admin_id: ID админа
 
         Returns:
-            True если успешно
+            Tuple[success: bool, message: str]
         """
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
-                column = f"text_{lang}"
-
                 # Проверяем существует ли ключ
                 async with db.execute(
-                    "SELECT id FROM text_templates WHERE key = ?", (key,)
+                    "SELECT id, text_ru FROM text_templates WHERE key = ?", (key,)
                 ) as cursor:
-                    exists = await cursor.fetchone()
+                    row = await cursor.fetchone()
 
-                if exists:
-                    # Обновляем
+                column = f"text_{lang}"
+
+                if row:
+                    # Обновляем существующую запись
+                    old_text = row[1]
                     await db.execute(
-                        f"""UPDATE text_templates 
-                        SET {column} = ?, is_custom = 1, updated_by = ?
+                        f"""UPDATE text_templates
+                        SET {column} = ?, is_customized = 1, updated_at = CURRENT_TIMESTAMP, updated_by = ?
                         WHERE key = ?""",
                         (text, admin_id, key),
                     )
                 else:
-                    # Создаем новую запись
+                    # Создаём новую запись
+                    old_text = None
                     await db.execute(
-                        f"""INSERT INTO text_templates (key, {column}, is_custom, updated_by)
-                        VALUES (?, ?, 1, ?)""",
+                        f"""INSERT INTO text_templates
+                        (key, {column}, category, is_customized, updated_by)
+                        VALUES (?, ?, 'custom', 1, ?)""",
                         (key, text, admin_id),
                     )
+
+                # Записываем в историю
+                await db.execute(
+                    """INSERT INTO text_changes_log
+                    (key, old_value, new_value, lang, changed_by)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (key, old_text, text, lang, admin_id),
+                )
 
                 await db.commit()
 
@@ -229,28 +230,29 @@ class HybridTextManager:
                 cache_key = f"{key}:{lang}"
                 cls._cache.pop(cache_key, None)
 
-                logger.info(f"✅ Text template updated: {key} by admin {admin_id}")
-                return True
+                logger.info(f"✅ Text updated: {key} by admin {admin_id}")
+                return True, "Текст успешно обновлён"
+
         except Exception as e:
-            logger.error(f"❌ Error updating text template {key}: {e}")
-            return False
+            logger.error(f"❌ Error updating text {key}: {e}", exc_info=True)
+            return False, f"Ошибка: {str(e)}"
 
     @classmethod
-    async def reset_to_default(cls, key: str, lang: str = "ru") -> bool:
-        """Сбросить текст к дефолтному значению (YAML)
+    async def reset_to_default(cls, key: str, lang: str = "ru") -> Tuple[bool, str]:
+        """Сбросить текст к дефолтному значению из YAML
 
         Args:
             key: Ключ текста
             lang: Язык
 
         Returns:
-            True если успешно
+            Tuple[success: bool, message: str]
         """
         try:
             async with aiosqlite.connect(DATABASE_PATH) as db:
-                # Удаляем кастомизацию (либо отмечаем is_custom=0)
+                # Устанавливаем is_customized = 0
                 await db.execute(
-                    "UPDATE text_templates SET is_custom = 0 WHERE key = ?", (key,)
+                    "UPDATE text_templates SET is_customized = 0 WHERE key = ?", (key,)
                 )
                 await db.commit()
 
@@ -258,105 +260,75 @@ class HybridTextManager:
                 cache_key = f"{key}:{lang}"
                 cls._cache.pop(cache_key, None)
 
-                logger.info(f"✅ Text template reset to default: {key}")
-                return True
+                logger.info(f"✅ Text reset to default: {key}")
+                return True, "Текст сброшен к дефолтному"
+
         except Exception as e:
-            logger.error(f"❌ Error resetting text template {key}: {e}")
-            return False
+            logger.error(f"❌ Error resetting text {key}: {e}")
+            return False, f"Ошибка: {str(e)}"
 
     @classmethod
-    async def get_all(
-        cls, category: str = None, lang: str = "ru", include_yaml: bool = True
-    ) -> Dict[str, Dict[str, Any]]:
+    async def get_all(cls, category: str = None, lang: str = "ru") -> Dict[str, Any]:
         """Получить все тексты (для админ-панели)
 
         Args:
-            category: Фильтр по категории
+            category: Категория фильтрации (booking, admin, common)
             lang: Язык
-            include_yaml: Включить тексты из YAML
 
         Returns:
-            Dict[key, {'text': str, 'description': str, 'is_custom': bool}]
+            Dict[key, {text, description, is_customized}]
         """
-        result = {}
-
         try:
-            # Загружаем из БД
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 column = f"text_{lang}"
 
                 if category:
-                    query = f"SELECT key, {column}, description, is_custom FROM text_templates WHERE category = ?"
+                    query = f"""SELECT key, {column}, description, is_customized, category
+                               FROM text_templates WHERE category = ?
+                               ORDER BY category, key"""
                     params = (category,)
                 else:
-                    query = f"SELECT key, {column}, description, is_custom FROM text_templates"
+                    query = f"""SELECT key, {column}, description, is_customized, category
+                               FROM text_templates
+                               ORDER BY category, key"""
                     params = ()
 
                 async with db.execute(query, params) as cursor:
                     rows = await cursor.fetchall()
+
+                    result = {}
                     for row in rows:
-                        result[row[0]] = {
-                            "text": row[1],
-                            "description": row[2] or "",
-                            "is_custom": bool(row[3]),
-                            "source": "database",
-                        }
-
-            # Добавляем из YAML (если нет в БД)
-            if include_yaml:
-                if not cls._yaml_loaded:
-                    cls._load_yaml()
-
-                yaml_data = cls._yaml_translations.get(lang, {})
-
-                # Флэтеним YAML данные в плоский dict
-                def flatten_dict(d: Dict, parent_key: str = "") -> Dict:
-                    items = []
-                    for k, v in d.items():
-                        new_key = f"{parent_key}.{k}" if parent_key else k
-                        if isinstance(v, dict):
-                            items.extend(flatten_dict(v, new_key).items())
-                        else:
-                            items.append((new_key, v))
-                    return dict(items)
-
-                flat_yaml = flatten_dict(yaml_data)
-
-                for key, text in flat_yaml.items():
-                    # Фильтр по категории
-                    if category and not key.startswith(f"{category}."):
-                        continue
-
-                    # Добавляем только если нет в БД
-                    if key not in result:
+                        key, text, description, is_customized, cat = row
                         result[key] = {
-                            "text": str(text),
-                            "description": "",
-                            "is_custom": False,
-                            "source": "yaml",
+                            "text": text,
+                            "description": description,
+                            "is_customized": bool(is_customized),
+                            "category": cat,
                         }
 
-            return result
+                    return result
+
         except Exception as e:
-            logger.error(f"❌ Error loading all templates: {e}")
+            logger.error(f"Error loading all templates: {e}")
             return {}
 
     @classmethod
-    def get_categories(cls) -> list[str]:
+    async def get_categories(cls) -> List[str]:
         """Получить список всех категорий
 
         Returns:
-            Список категорий
+            List[str]: Список категорий
         """
-        if not cls._yaml_loaded:
-            cls._load_yaml()
-
-        # Извлекаем категории из YAML (верхний уровень)
-        categories = set()
-        for lang_data in cls._yaml_translations.values():
-            categories.update(lang_data.keys())
-
-        return sorted(categories)
+        try:
+            async with aiosqlite.connect(DATABASE_PATH) as db:
+                async with db.execute(
+                    "SELECT DISTINCT category FROM text_templates ORDER BY category"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                    return [row[0] for row in rows]
+        except Exception as e:
+            logger.error(f"Error loading categories: {e}")
+            return []
 
     @classmethod
     def clear_cache(cls):
@@ -366,7 +338,7 @@ class HybridTextManager:
 
     @classmethod
     def reload_yaml(cls):
-        """Перезагрузить YAML файлы"""
+        """Перезагрузить YAML файлы (hot reload)"""
         cls._yaml_loaded = False
         cls._yaml_translations.clear()
         cls._load_yaml()
@@ -375,5 +347,4 @@ class HybridTextManager:
 
 
 # Сокращенный alias для удобства
-TextManager = HybridTextManager
-_ = HybridTextManager.get  # Удобный alias: await _('booking.button')
+_ = TextManager.get
