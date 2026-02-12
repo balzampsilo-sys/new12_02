@@ -17,7 +17,7 @@ class AdminStates(StatesGroup):
     awaiting_block_time = State()
     awaiting_block_reason = State()
     
-    # ✅ Управление админами
+    # ✅ Управление администраторами
     awaiting_admin_id = State()  # Старое название (deprecated)
     awaiting_new_admin_id = State()  # Добавление нового админа
     awaiting_admin_username = State()  # Ручной ввод username
@@ -34,3 +34,10 @@ class AdminStates(StatesGroup):
     block_dates_start = State()
     block_dates_end = State()
     block_dates_reason = State()
+
+
+class MassEditStates(StatesGroup):
+    """Состояния для массового редактирования"""
+    awaiting_date_selection = State()
+    awaiting_action_selection = State()
+    awaiting_confirmation = State()
