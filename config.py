@@ -138,6 +138,7 @@ ROLE_PERMISSIONS = {
         "manage_slots": True,
         "edit_services": True,
         "export_data": True,
+        "manage_settings": True,  # ✅ NEW: System settings
     },
     ROLE_MODERATOR: {
         "manage_admins": False,
@@ -146,5 +147,6 @@ ROLE_PERMISSIONS = {
         "manage_slots": True,
         "edit_services": True,
         "export_data": False,
+        "manage_settings": False,  # ✅ NEW: Only Super Admin
     },
 }
