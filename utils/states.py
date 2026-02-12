@@ -12,15 +12,21 @@ class BookingStates(StatesGroup):
 
 class AdminStates(StatesGroup):
     """Состояния для админ-панели"""
-    awaiting_broadcast_message = State()  # ✅ УНИФИЦИРОВАНО имя
+    awaiting_broadcast_message = State()  # ✅ Рассылка сообщений
     awaiting_block_date = State()
     awaiting_block_time = State()
     awaiting_block_reason = State()
-    awaiting_admin_id = State()
+    
+    # ✅ Управление админами
+    awaiting_admin_id = State()  # Старое название (deprecated)
+    awaiting_new_admin_id = State()  # Добавление нового админа
+    awaiting_admin_username = State()  # Ручной ввод username
     awaiting_removal_id = State()
+    
+    # Настройки расписания
     awaiting_work_hours_start = State()
     awaiting_work_hours_end = State()
-    awaiting_slot_interval = State()  # ✅ НОВОЕ состояние!
+    awaiting_slot_interval = State()  # ✅ Интервал слотов
     
     # Календарные состояния
     reschedule_select_date = State()
