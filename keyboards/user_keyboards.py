@@ -17,11 +17,10 @@ from config import (
     DAY_NAMES_SHORT,
     MONTH_NAMES,
     TIMEZONE,
-    WORK_HOURS_END,
-    WORK_HOURS_START,
 )
 from database.queries import Database
 from database.repositories.service_repository import ServiceRepository
+from database.repositories.settings_repository import SettingsRepository  # ✅ ДОБАВЛЕНО
 from utils.helpers import now_local
 
 # Главное меню
@@ -191,14 +190,17 @@ async def create_time_slots(
     # Длительность услуги в минутах (по умолчанию 60)
     duration_minutes = service.duration_minutes if service else 60
 
+    # ✅ КРИТИЧНО: Получаем ДИНАМИЧЕСКИЕ рабочие часы из БД!
+    start_hour, end_hour = await SettingsRepository.get_work_hours()
+
     # ✅ КРИТИЧНО: Получаем занятые слоты С ДЛИТЕЛЬНОСТЬЮ
     occupied_slots = await Database.get_occupied_slots_for_day(date_str)
 
     free_count = 0
-    total_slots = WORK_HOURS_END - WORK_HOURS_START
+    total_slots = end_hour - start_hour  # ✅ ИСПРАВЛЕНО: Динамический расчёт!
 
     # ✅ КРИТИЧНО: Проверяем слоты с учетом длительности услуги
-    for hour in range(WORK_HOURS_START, WORK_HOURS_END):
+    for hour in range(start_hour, end_hour):  # ✅ ИСПРАВЛЕНО: Динамические границы!
         time_str = f"{hour:02d}:00"
 
         # Создаем datetime для текущего слота
@@ -215,8 +217,8 @@ async def create_time_slots(
         end_datetime = slot_datetime + timedelta(minutes=duration_minutes)
 
         # Проверяем что слот не выходит за рабочие часы
-        end_hour = end_datetime.hour + (1 if end_datetime.minute > 0 else 0)
-        if end_hour > WORK_HOURS_END:
+        end_hour_check = end_datetime.hour + (1 if end_datetime.minute > 0 else 0)
+        if end_hour_check > end_hour:  # ✅ ИСПРАВЛЕНО: Используем динамический end_hour!
             continue
 
         # ✅ КРИТИЧНО: Проверяем пересечения с РЕАЛЬНОЙ длительностью
