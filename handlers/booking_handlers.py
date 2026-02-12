@@ -27,6 +27,7 @@ from keyboards.user_keyboards import (
     create_cancel_confirmation_keyboard,
     create_confirmation_keyboard,
     create_month_calendar,
+    create_services_keyboard,  # ✅ ДОБАВЛЕНО: импорт функции
     create_time_slots,
 )
 from services.booking_service import BookingService
@@ -61,7 +62,7 @@ async def booking_start(message: Message, state: FSMContext):
         )
         return
 
-    # ✅ НОВОЕ: Получаем активные услуги
+    # ✅ Получаем активные услуги
     services = await ServiceRepository.get_all_services(active_only=True)
 
     if not services:
@@ -74,17 +75,8 @@ async def booking_start(message: Message, state: FSMContext):
         logging.error("No active services available for booking")
         return
 
-    # ✅ НОВОЕ: Создаем клавиатуру выбора услуг
-    keyboard = []
-    for service in services:
-        service_text = f"{service.name}\n" f"⏱ {service.duration_minutes} мин | 💰 {service.price}"
-        keyboard.append(
-            [InlineKeyboardButton(text=service_text, callback_data=f"select_service:{service.id}")]
-        )
-
-    keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking_flow")])
-
-    kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    # ✅ УЛУЧШЕНО: Используем готовую функцию вместо дублирования кода
+    kb = create_services_keyboard(services)
 
     await message.answer(
         "📍 ШАГ 1 из 4: Выберите услугу\n\n"
