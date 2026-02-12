@@ -6,11 +6,19 @@ Key improvements:
 3. Input validation with Pydantic
 4. Race condition prevention
 5. Proper connection management
+6. P0 Critical Fixes:
+   - Transaction timeouts (30s)
+   - Rate limiting (3 attempts/10s per user)
+   - Private _is_slot_free to enforce transactional usage
+   - Structured logging with context
 """
 
+import asyncio
 import calendar
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta
+from time import time
 from typing import Dict, List, Optional, Tuple
 
 import aiosqlite
@@ -42,6 +50,16 @@ from validation.schemas import (
 
 logger = logging.getLogger(__name__)
 
+# === RATE LIMITING ===
+# Track booking attempts per user to prevent spam
+_user_booking_attempts = defaultdict(list)
+_RATE_LIMIT_WINDOW = 10  # seconds
+_RATE_LIMIT_MAX_ATTEMPTS = 3  # max attempts per window
+
+# === OPERATION TIMEOUTS ===
+TRANSACTION_TIMEOUT = 30  # seconds
+QUERY_TIMEOUT = 10  # seconds
+
 
 class BookingRepositoryV2(BaseRepository):
     """Enhanced repository for managing bookings with transactions"""
@@ -50,8 +68,11 @@ class BookingRepositoryV2(BaseRepository):
     @async_retry_on_error(
         max_attempts=3, delay=0.5, exceptions=(aiosqlite.OperationalError,)
     )
-    async def is_slot_free(date_str: str, time_str: str) -> bool:
-        """Check if slot is free (atomic check)
+    async def _is_slot_free(date_str: str, time_str: str) -> bool:
+        """Check if slot is free (atomic check) - PRIVATE METHOD
+        
+        WARNING: This method is private. Use create_booking_atomic() instead,
+        which performs this check inside a transaction to prevent race conditions.
 
         Args:
             date_str: Date in YYYY-MM-DD format
@@ -77,25 +98,61 @@ class BookingRepositoryV2(BaseRepository):
 
         try:
             async with safe_operation("check_slot_free", date=date_str, time=time_str):
-                async with aiosqlite.connect(DATABASE_PATH) as db:
-                    # Single query with UNION for atomicity
-                    async with db.execute(
-                        """
-                        SELECT 1 FROM (
-                            SELECT 1 FROM bookings WHERE date=? AND time=?
-                            UNION ALL
-                            SELECT 1 FROM blocked_slots WHERE date=? AND time=?
-                        ) LIMIT 1
-                        """,
-                        (date_str, time_str, date_str, time_str),
-                    ) as cursor:
-                        exists = await cursor.fetchone() is not None
-                        return not exists
+                async with asyncio.timeout(QUERY_TIMEOUT):
+                    async with aiosqlite.connect(DATABASE_PATH) as db:
+                        # Single query with UNION for atomicity
+                        async with db.execute(
+                            """
+                            SELECT 1 FROM (
+                                SELECT 1 FROM bookings WHERE date=? AND time=?
+                                UNION ALL
+                                SELECT 1 FROM blocked_slots WHERE date=? AND time=?
+                            ) LIMIT 1
+                            """,
+                            (date_str, time_str, date_str, time_str),
+                        ) as cursor:
+                            exists = await cursor.fetchone() is not None
+                            return not exists
 
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout checking slot: {date_str} {time_str}")
+            raise DatabaseError("Operation timeout") from None
         except aiosqlite.Error as e:
             context = {"date": date_str, "time": time_str}
             await handle_database_error(e, context)
             raise DatabaseError(f"Failed to check slot: {e}") from e
+
+    @staticmethod
+    def _check_rate_limit(user_id: int) -> Tuple[bool, Optional[str]]:
+        """Check if user is within rate limits
+        
+        Args:
+            user_id: User ID to check
+            
+        Returns:
+            Tuple[allowed: bool, error_message: Optional[str]]
+        """
+        now = time()
+        attempts = _user_booking_attempts[user_id]
+        
+        # Remove old attempts outside window
+        attempts[:] = [t for t in attempts if now - t < _RATE_LIMIT_WINDOW]
+        
+        if len(attempts) >= _RATE_LIMIT_MAX_ATTEMPTS:
+            logger.warning(
+                f"Rate limit exceeded for user {user_id}",
+                extra={
+                    "event": "rate_limit_exceeded",
+                    "user_id": user_id,
+                    "attempts": len(attempts),
+                    "window": _RATE_LIMIT_WINDOW,
+                }
+            )
+            return False, f"Too many booking attempts. Please wait {_RATE_LIMIT_WINDOW} seconds."
+        
+        # Record this attempt
+        attempts.append(now)
+        return True, None
 
     @staticmethod
     @async_retry_on_error(max_attempts=3, delay=0.5)
@@ -124,6 +181,11 @@ class BookingRepositoryV2(BaseRepository):
             ValidationError: If inputs are invalid
             DatabaseError: On critical database errors
         """
+        # P0 FIX: Rate limiting
+        allowed, error_msg = BookingRepositoryV2._check_rate_limit(user_id)
+        if not allowed:
+            return False, error_msg
+
         # Validate inputs
         try:
             from datetime import datetime as dt
@@ -140,7 +202,14 @@ class BookingRepositoryV2(BaseRepository):
                 duration_minutes=duration_minutes,
             )
         except PydanticValidationError as e:
-            logger.warning(f"Booking validation failed: {e}")
+            logger.warning(
+                f"Booking validation failed: {e}",
+                extra={
+                    "event": "validation_error",
+                    "user_id": user_id,
+                    "error": str(e),
+                }
+            )
             return False, f"Invalid input: {e.errors()[0]['msg']}"
 
         try:
@@ -150,76 +219,110 @@ class BookingRepositoryV2(BaseRepository):
                 date=date_str,
                 time=time_str,
             ):
-                async with aiosqlite.connect(DATABASE_PATH) as db:
-                    # BEGIN IMMEDIATE - locks database immediately
-                    await db.execute("BEGIN IMMEDIATE")
+                # P0 FIX: Add transaction timeout
+                async with asyncio.timeout(TRANSACTION_TIMEOUT):
+                    async with aiosqlite.connect(DATABASE_PATH) as db:
+                        # BEGIN IMMEDIATE - locks database immediately
+                        await db.execute("BEGIN IMMEDIATE")
 
-                    try:
-                        # 1. Check if slot is free (within transaction)
-                        async with db.execute(
-                            """
-                            SELECT 1 FROM (
-                                SELECT 1 FROM bookings WHERE date=? AND time=?
-                                UNION ALL
-                                SELECT 1 FROM blocked_slots WHERE date=? AND time=?
-                            ) LIMIT 1
-                            """,
-                            (date_str, time_str, date_str, time_str),
-                        ) as cursor:
-                            if await cursor.fetchone():
-                                await db.rollback()
-                                return False, "Slot is already taken"
+                        try:
+                            # 1. Check if slot is free (within transaction)
+                            async with db.execute(
+                                """
+                                SELECT 1 FROM (
+                                    SELECT 1 FROM bookings WHERE date=? AND time=?
+                                    UNION ALL
+                                    SELECT 1 FROM blocked_slots WHERE date=? AND time=?
+                                ) LIMIT 1
+                                """,
+                                (date_str, time_str, date_str, time_str),
+                            ) as cursor:
+                                if await cursor.fetchone():
+                                    await db.rollback()
+                                    return False, "Slot is already taken"
 
-                        # 2. Check user booking limit
-                        async with db.execute(
-                            """SELECT COUNT(*) FROM bookings
-                               WHERE user_id=? AND date >= date('now')""",
-                            (user_id,),
-                        ) as cursor:
-                            count = (await cursor.fetchone())[0]
-                            if count >= MAX_BOOKINGS_PER_USER:
-                                await db.rollback()
-                                return (
-                                    False,
-                                    f"Booking limit reached ({MAX_BOOKINGS_PER_USER})",
-                                )
+                            # 2. Check user booking limit
+                            async with db.execute(
+                                """SELECT COUNT(*) FROM bookings
+                                   WHERE user_id=? AND date >= date('now')""",
+                                (user_id,),
+                            ) as cursor:
+                                count = (await cursor.fetchone())[0]
+                                if count >= MAX_BOOKINGS_PER_USER:
+                                    await db.rollback()
+                                    return (
+                                        False,
+                                        f"Booking limit reached ({MAX_BOOKINGS_PER_USER})",
+                                    )
 
-                        # 3. Create booking
-                        await db.execute(
-                            """
-                            INSERT INTO bookings
-                            (date, time, user_id, username, created_at, service_id, duration_minutes)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                date_str,
-                                time_str,
-                                user_id,
-                                username,
-                                now_local().isoformat(),
-                                service_id,
-                                duration_minutes,
-                            ),
-                        )
+                            # 3. Create booking
+                            cursor = await db.execute(
+                                """
+                                INSERT INTO bookings
+                                (date, time, user_id, username, created_at, service_id, duration_minutes)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    date_str,
+                                    time_str,
+                                    user_id,
+                                    username,
+                                    now_local().isoformat(),
+                                    service_id,
+                                    duration_minutes,
+                                ),
+                            )
+                            
+                            booking_id = cursor.lastrowid
 
-                        # COMMIT transaction
-                        await db.commit()
+                            # COMMIT transaction
+                            await db.commit()
 
-                        logger.info(
-                            f"Booking created: user={user_id}, slot={date_str} {time_str}"
-                        )
-                        return True, None
+                            # P0 FIX: Structured logging with all context
+                            logger.info(
+                                f"Booking created: id={booking_id}, user={user_id}, "
+                                f"slot={date_str} {time_str}, service={service_id}, duration={duration_minutes}min",
+                                extra={
+                                    "event": "booking_created",
+                                    "booking_id": booking_id,
+                                    "user_id": user_id,
+                                    "username": username,
+                                    "date": date_str,
+                                    "time": time_str,
+                                    "service_id": service_id,
+                                    "duration_minutes": duration_minutes,
+                                }
+                            )
+                            return True, None
 
-                    except aiosqlite.IntegrityError as e:
-                        await db.rollback()
-                        # Slot was taken between check and insert (rare)
-                        logger.warning(f"Race condition detected: {e}")
-                        return False, "Slot was just taken by another user"
+                        except aiosqlite.IntegrityError as e:
+                            await db.rollback()
+                            # Slot was taken between check and insert (rare)
+                            logger.warning(
+                                f"Race condition detected: {e}",
+                                extra={
+                                    "event": "race_condition",
+                                    "user_id": user_id,
+                                    "date": date_str,
+                                    "time": time_str,
+                                }
+                            )
+                            return False, "Slot was just taken by another user"
 
-                    except Exception as e:
-                        await db.rollback()
-                        raise
+                        except Exception as e:
+                            await db.rollback()
+                            raise
 
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Transaction timeout creating booking for user {user_id}",
+                extra={
+                    "event": "transaction_timeout",
+                    "user_id": user_id,
+                    "timeout": TRANSACTION_TIMEOUT,
+                }
+            )
+            return False, "Operation timeout. Please try again."
         except aiosqlite.Error as e:
             context = {
                 "user_id": user_id,
@@ -262,55 +365,77 @@ class BookingRepositoryV2(BaseRepository):
             async with safe_operation(
                 "cancel_booking", booking_id=booking_id, user_id=user_id
             ):
-                async with aiosqlite.connect(DATABASE_PATH) as db:
-                    await db.execute("BEGIN IMMEDIATE")
+                # P0 FIX: Add transaction timeout
+                async with asyncio.timeout(TRANSACTION_TIMEOUT):
+                    async with aiosqlite.connect(DATABASE_PATH) as db:
+                        await db.execute("BEGIN IMMEDIATE")
 
-                    try:
-                        # 1. Get booking details
-                        async with db.execute(
-                            "SELECT date, time FROM bookings WHERE id=? AND user_id=?",
-                            (booking_id, user_id),
-                        ) as cursor:
-                            booking = await cursor.fetchone()
+                        try:
+                            # 1. Get booking details
+                            async with db.execute(
+                                "SELECT date, time FROM bookings WHERE id=? AND user_id=?",
+                                (booking_id, user_id),
+                            ) as cursor:
+                                booking = await cursor.fetchone()
 
-                        if not booking:
-                            await db.rollback()
-                            return False, "Booking not found"
+                            if not booking:
+                                await db.rollback()
+                                return False, "Booking not found"
 
-                        date_str, time_str = booking
+                            date_str, time_str = booking
 
-                        # 2. Check cancellation policy
-                        booking_dt_naive = datetime.strptime(
-                            f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
-                        )
-                        booking_dt = TIMEZONE.localize(booking_dt_naive)
-                        hours_until = (booking_dt - now_local()).total_seconds() / 3600
+                            # 2. Check cancellation policy
+                            booking_dt_naive = datetime.strptime(
+                                f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
+                            )
+                            booking_dt = TIMEZONE.localize(booking_dt_naive)
+                            hours_until = (booking_dt - now_local()).total_seconds() / 3600
 
-                        if hours_until < CANCELLATION_HOURS:
-                            await db.rollback()
-                            return (
-                                False,
-                                f"Can only cancel {CANCELLATION_HOURS}h before booking",
+                            if hours_until < CANCELLATION_HOURS:
+                                await db.rollback()
+                                return (
+                                    False,
+                                    f"Can only cancel {CANCELLATION_HOURS}h before booking",
+                                )
+
+                            # 3. Delete booking
+                            await db.execute(
+                                "DELETE FROM bookings WHERE id=? AND user_id=?",
+                                (booking_id, user_id),
                             )
 
-                        # 3. Delete booking
-                        await db.execute(
-                            "DELETE FROM bookings WHERE id=? AND user_id=?",
-                            (booking_id, user_id),
-                        )
+                            await db.commit()
 
-                        await db.commit()
+                            # P0 FIX: Structured logging
+                            logger.info(
+                                f"Booking cancelled: id={booking_id}, user={user_id}, "
+                                f"slot={date_str} {time_str}, reason={reason or 'none'}",
+                                extra={
+                                    "event": "booking_cancelled",
+                                    "booking_id": booking_id,
+                                    "user_id": user_id,
+                                    "date": date_str,
+                                    "time": time_str,
+                                    "reason": reason,
+                                    "hours_until": hours_until,
+                                }
+                            )
+                            return True, None
 
-                        logger.info(
-                            f"Booking cancelled: id={booking_id}, user={user_id}, "
-                            f"reason={reason or 'none'}"
-                        )
-                        return True, None
+                        except Exception as e:
+                            await db.rollback()
+                            raise
 
-                    except Exception as e:
-                        await db.rollback()
-                        raise
-
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Transaction timeout cancelling booking {booking_id}",
+                extra={
+                    "event": "transaction_timeout",
+                    "booking_id": booking_id,
+                    "timeout": TRANSACTION_TIMEOUT,
+                }
+            )
+            return False, "Operation timeout. Please try again."
         except aiosqlite.Error as e:
             context = {"booking_id": booking_id, "user_id": user_id}
             await handle_database_error(e, context)
@@ -356,97 +481,129 @@ class BookingRepositoryV2(BaseRepository):
             async with safe_operation(
                 "block_slot", date=date_str, time=time_str, admin=admin_id
             ):
-                async with aiosqlite.connect(DATABASE_PATH) as db:
-                    await db.execute("BEGIN IMMEDIATE")
+                # P0 FIX: Add transaction timeout
+                async with asyncio.timeout(TRANSACTION_TIMEOUT):
+                    async with aiosqlite.connect(DATABASE_PATH) as db:
+                        await db.execute("BEGIN IMMEDIATE")
 
-                    try:
-                        # 1. Get existing bookings
-                        async with db.execute(
-                            "SELECT user_id, username FROM bookings WHERE date=? AND time=?",
-                            (date_str, time_str),
-                        ) as cursor:
-                            existing_bookings = await cursor.fetchall()
+                        try:
+                            # 1. Get existing bookings
+                            async with db.execute(
+                                "SELECT user_id, username FROM bookings WHERE date=? AND time=?",
+                                (date_str, time_str),
+                            ) as cursor:
+                                existing_bookings = await cursor.fetchall()
 
-                        cancelled_users = []
-                        for user_id, username in existing_bookings:
-                            cancelled_users.append(
-                                {
-                                    "user_id": user_id,
-                                    "username": username or f"ID{user_id}",
+                            cancelled_users = []
+                            for user_id, username in existing_bookings:
+                                cancelled_users.append(
+                                    {
+                                        "user_id": user_id,
+                                        "username": username or f"ID{user_id}",
+                                        "date": date_str,
+                                        "time": time_str,
+                                        "reason": reason,
+                                    }
+                                )
+
+                            # 2. Delete existing bookings
+                            if cancelled_users:
+                                await db.execute(
+                                    "DELETE FROM bookings WHERE date=? AND time=?",
+                                    (date_str, time_str),
+                                )
+
+                            # 3. Create block
+                            await db.execute(
+                                """
+                                INSERT INTO blocked_slots
+                                (date, time, reason, blocked_by, blocked_at)
+                                VALUES (?, ?, ?, ?, ?)
+                                """,
+                                (date_str, time_str, reason, admin_id, now_local().isoformat()),
+                            )
+
+                            await db.commit()
+
+                            # P0 FIX: Structured logging
+                            logger.info(
+                                f"Slot blocked: {date_str} {time_str} by admin {admin_id}, "
+                                f"cancelled {len(cancelled_users)} bookings",
+                                extra={
+                                    "event": "slot_blocked",
                                     "date": date_str,
                                     "time": time_str,
+                                    "admin_id": admin_id,
                                     "reason": reason,
+                                    "cancelled_count": len(cancelled_users),
+                                    "cancelled_users": [u["user_id"] for u in cancelled_users],
                                 }
                             )
+                            return True, cancelled_users, None
 
-                        # 2. Delete existing bookings
-                        if cancelled_users:
-                            await db.execute(
-                                "DELETE FROM bookings WHERE date=? AND time=?",
-                                (date_str, time_str),
+                        except aiosqlite.IntegrityError as e:
+                            await db.rollback()
+                            logger.warning(
+                                f"Slot already blocked: {date_str} {time_str}",
+                                extra={
+                                    "event": "slot_already_blocked",
+                                    "date": date_str,
+                                    "time": time_str,
+                                }
                             )
+                            return False, [], "Slot is already blocked"
 
-                        # 3. Create block
-                        await db.execute(
-                            """
-                            INSERT INTO blocked_slots
-                            (date, time, reason, blocked_by, blocked_at)
-                            VALUES (?, ?, ?, ?, ?)
-                            """,
-                            (date_str, time_str, reason, admin_id, now_local().isoformat()),
-                        )
+                        except Exception as e:
+                            await db.rollback()
+                            raise
 
-                        await db.commit()
-
-                        logger.info(
-                            f"Slot blocked: {date_str} {time_str} by admin {admin_id}, "
-                            f"cancelled {len(cancelled_users)} bookings"
-                        )
-                        return True, cancelled_users, None
-
-                    except aiosqlite.IntegrityError as e:
-                        await db.rollback()
-                        logger.warning(f"Slot already blocked: {e}")
-                        return False, [], "Slot is already blocked"
-
-                    except Exception as e:
-                        await db.rollback()
-                        raise
-
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Transaction timeout blocking slot {date_str} {time_str}",
+                extra={
+                    "event": "transaction_timeout",
+                    "date": date_str,
+                    "time": time_str,
+                    "timeout": TRANSACTION_TIMEOUT,
+                }
+            )
+            return False, [], "Operation timeout. Please try again."
         except aiosqlite.Error as e:
             context = {"date": date_str, "time": time_str, "admin_id": admin_id}
             await handle_database_error(e, context)
             return False, [], "Database error. Please try again."
 
     # === KEEP ALL OTHER METHODS FROM ORIGINAL (they're already good) ===
-    # Just add retry decorators where needed
+    # Just add retry decorators and timeouts where needed
 
     @staticmethod
     @async_retry_on_error(max_attempts=3, delay=0.5)
     async def get_occupied_slots_for_day(date_str: str) -> List[Tuple[str, int]]:
-        """Get occupied slots with retry (unchanged from original)"""
-        # ... (keep original implementation)
+        """Get occupied slots with retry and timeout"""
         occupied = []
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                async with db.execute(
-                    """SELECT b.time, COALESCE(s.duration_minutes, 60) as duration
-                    FROM bookings b
-                    LEFT JOIN services s ON b.service_id = s.id
-                    WHERE b.date = ?""",
-                    (date_str,),
-                ) as cursor:
-                    bookings = await cursor.fetchall()
-                    if bookings:
-                        occupied.extend((time, duration) for time, duration in bookings)
+            async with asyncio.timeout(QUERY_TIMEOUT):
+                async with aiosqlite.connect(DATABASE_PATH) as db:
+                    async with db.execute(
+                        """SELECT b.time, COALESCE(s.duration_minutes, 60) as duration
+                        FROM bookings b
+                        LEFT JOIN services s ON b.service_id = s.id
+                        WHERE b.date = ?""",
+                        (date_str,),
+                    ) as cursor:
+                        bookings = await cursor.fetchall()
+                        if bookings:
+                            occupied.extend((time, duration) for time, duration in bookings)
 
-                async with db.execute(
-                    "SELECT time FROM blocked_slots WHERE date = ?", (date_str,)
-                ) as cursor:
-                    blocked = await cursor.fetchall()
-                    if blocked:
-                        occupied.extend((time, 60) for (time,) in blocked)
+                    async with db.execute(
+                        "SELECT time FROM blocked_slots WHERE date = ?", (date_str,)
+                    ) as cursor:
+                        blocked = await cursor.fetchall()
+                        if blocked:
+                            occupied.extend((time, 60) for (time,) in blocked)
 
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout getting occupied slots for {date_str}")
         except Exception as e:
             logger.error(f"Error getting occupied slots for {date_str}: {e}")
 
@@ -455,38 +612,41 @@ class BookingRepositoryV2(BaseRepository):
     @staticmethod
     @async_retry_on_error(max_attempts=2, delay=1.0)
     async def get_user_bookings(user_id: int) -> List[Tuple]:
-        """Get user bookings with retry"""
-        # ... (keep original implementation with retry)
+        """Get user bookings with retry and timeout"""
         try:
-            now = now_local()
+            async with asyncio.timeout(QUERY_TIMEOUT):
+                now = now_local()
 
-            bookings = await BookingRepositoryV2._execute_query(
-                """SELECT
-                    b.id, b.date, b.time, b.username, b.created_at,
-                    b.service_id,
-                    COALESCE(s.name, 'Основная услуга') as service_name,
-                    COALESCE(s.duration_minutes, 60) as duration_minutes,
-                    COALESCE(s.price, '—') as price
-                FROM bookings b
-                LEFT JOIN services s ON b.service_id = s.id
-                WHERE b.user_id = ?
-                ORDER BY b.date, b.time""",
-                (user_id,),
-                fetch_all=True,
-            )
+                bookings = await BookingRepositoryV2._execute_query(
+                    """SELECT
+                        b.id, b.date, b.time, b.username, b.created_at,
+                        b.service_id,
+                        COALESCE(s.name, 'Основная услуга') as service_name,
+                        COALESCE(s.duration_minutes, 60) as duration_minutes,
+                        COALESCE(s.price, '—') as price
+                    FROM bookings b
+                    LEFT JOIN services s ON b.service_id = s.id
+                    WHERE b.user_id = ?
+                    ORDER BY b.date, b.time""",
+                    (user_id,),
+                    fetch_all=True,
+                )
 
-            if not bookings:
-                return []
+                if not bookings:
+                    return []
 
-            future_bookings = []
-            for booking in bookings:
-                booking_id, date_str, time_str = booking[0], booking[1], booking[2]
-                booking_dt_naive = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
-                booking_dt = TIMEZONE.localize(booking_dt_naive)
-                if booking_dt >= now:
-                    future_bookings.append(booking)
+                future_bookings = []
+                for booking in bookings:
+                    booking_id, date_str, time_str = booking[0], booking[1], booking[2]
+                    booking_dt_naive = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+                    booking_dt = TIMEZONE.localize(booking_dt_naive)
+                    if booking_dt >= now:
+                        future_bookings.append(booking)
 
-            return future_bookings
+                return future_bookings
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout getting bookings for user {user_id}")
+            return []
         except Exception as e:
             logger.error(f"Error getting bookings for user {user_id}: {e}")
             return []
