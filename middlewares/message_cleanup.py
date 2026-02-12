@@ -13,6 +13,16 @@ from aiogram.types import CallbackQuery, TelegramObject
 
 from config import CALLBACK_MESSAGE_TTL_HOURS, TIMEZONE
 
+# ✅ НОВОЕ: Callback'и которые должны работать всегда (без TTL)
+TTL_WHITELIST = {
+    "ignore",
+    "error",
+    "onboarding_tour",  # ✅ Онбординг
+    "skip_onboarding",  # ✅ Онбординг
+    "start",
+    "help",
+}
+
 
 class MessageCleanupMiddleware(BaseMiddleware):
     """
@@ -41,8 +51,8 @@ class MessageCleanupMiddleware(BaseMiddleware):
         Проверяет возраст сообщения перед обработкой callback
         """
 
-        # Пропускаем системные callback (ignore, error и т.д.)
-        if event.data in ("ignore", "error"):
+        # ✅ Пропускаем системные callback (включая онбординг)
+        if event.data in TTL_WHITELIST:
             return await handler(event, data)
 
         message_date = event.message.date
@@ -193,8 +203,8 @@ class SmartCleanupMiddleware(MessageCleanupMiddleware):
         event: CallbackQuery,
         data: Dict[str, Any],
     ) -> Any:
-        # Пропускаем системные
-        if event.data in ("ignore", "error"):
+        # ✅ Пропускаем системные (включая онбординг)
+        if event.data in TTL_WHITELIST:
             return await handler(event, data)
 
         # Определяем тип сообщения
