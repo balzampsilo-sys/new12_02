@@ -1,0 +1,25 @@
+# === DEVELOPMENT DEPENDENCIES ===
+# Install these only for local development
+# Usage: pip install -r requirements.txt && pip install -r requirements-dev.txt
+
+# First install production dependencies
+-r requirements.txt
+
+# Code formatting
+black==24.1.1
+isort==5.13.2
+
+# Linting
+flake8==7.0.0
+pydocstyle==6.3.0
+
+# Security
+bandit==1.7.6
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+
+# Git hooks
+pre-commit==3.6.0
