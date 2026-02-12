@@ -42,8 +42,10 @@ from handlers import (
     admin_management_handlers,
     audit_handlers,
     booking_handlers,
+    calendar_handlers,  # ✅ ДОБАВЛЕНО
     mass_edit_handlers,
     service_management_handlers,
+    settings_handlers,  # ✅ ДОБАВЛЕНО
     universal_editor,
     user_handlers,
 )
@@ -387,12 +389,14 @@ async def start_bot():
         
         return True
 
-    # Регистрация роутеров (порядок важен!)
+    # ✅ Регистрация роутеров (порядок важен!)
     dp.include_router(universal_editor.router)
     dp.include_router(service_management_handlers.router)
     dp.include_router(admin_management_handlers.router)
     dp.include_router(audit_handlers.router)
     dp.include_router(mass_edit_handlers.router)
+    dp.include_router(settings_handlers.router)  # ✅ ДОБАВЛЕНО
+    dp.include_router(calendar_handlers.router)  # ✅ ДОБАВЛЕНО
     dp.include_router(admin_handlers.router)
     dp.include_router(booking_handlers.router)
     dp.include_router(user_handlers.router)
@@ -403,9 +407,9 @@ async def start_bot():
     logger.info("Bot started successfully")
     logger.info(
         "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
-        "Auto Cleanup, Reminders, Booking History"
+        "Auto Cleanup, Reminders, Booking History, Settings, Calendar"
     )
-    logger.info("✅ P0 Fixes Applied: Async Scheduler + Redis Leak")
+    logger.info("✅ P0 Fixes Applied: Async Scheduler + Redis Leak + Missing Handlers")
     
     if SENTRY_ENABLED:
         logger.info(f"Sentry monitoring active: {SENTRY_ENVIRONMENT}")
