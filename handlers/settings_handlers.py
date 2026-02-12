@@ -1,4 +1,4 @@
-"""Handlers для настроек системы"""
+"""Обработчики для настроек системы"""
 
 import logging
 
@@ -23,8 +23,9 @@ async def settings_menu(message: Message):
         await message.answer("❌ Нет доступа")
         return
 
-    # Получаем текущие рабочие часы
+    # Получаем текущие настройки
     start_hour, end_hour = await SettingsRepository.get_work_hours()
+    slot_interval = await SettingsRepository.get_slot_interval()  # ✅ НОВОЕ!
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -33,13 +34,19 @@ async def settings_menu(message: Message):
                     text="⏰ Рабочие часы", callback_data="settings_work_hours"
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text="⏱ Интервал слотов", callback_data="settings_slot_interval"  # ✅ НОВОЕ!
+                )
+            ],
             [InlineKeyboardButton(text="❌ Закрыть", callback_data="settings_close")],
         ]
     )
 
     await message.answer(
         f"⚙️ НАСТРОЙКИ СИСТЕМЫ\n\n"
-        f"⏰ Рабочие часы: {start_hour:02d}:00 - {end_hour:02d}:00\n\n"
+        f"⏰ Рабочие часы: {start_hour:02d}:00 - {end_hour:02d}:00\n"
+        f"⏱ Интервал слотов: {slot_interval} мин\n\n"
         "Выберите настройку:",
         reply_markup=kb,
     )
@@ -86,6 +93,103 @@ async def work_hours_menu(callback: CallbackQuery):
         reply_markup=kb,
     )
     await callback.answer()
+
+
+# ✅ НОВОЕ: Меню изменения интервала слотов
+@router.callback_query(F.data == "settings_slot_interval")
+async def slot_interval_menu(callback: CallbackQuery):
+    """Меню выбора интервала слотов"""
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    if not await has_permission(callback.from_user.id, "manage_settings"):
+        await callback.answer(
+            "❌ Недостаточно прав\n\nТолько для Super Admin", show_alert=True
+        )
+        return
+
+    current_interval = await SettingsRepository.get_slot_interval()
+
+    # Создаем кнопки для выбора интервала
+    intervals = [15, 30, 45, 60]
+    keyboard = []
+    
+    for interval in intervals:
+        # Добавляем чекмарк для текущего
+        checkmark = "✅ " if interval == current_interval else ""
+        text = f"{checkmark}{interval} мин"
+        keyboard.append([
+            InlineKeyboardButton(
+                text=text,
+                callback_data=f"set_interval:{interval}"
+            )
+        ])
+    
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="settings_back")])
+    kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+    await callback.message.edit_text(
+        f"⏱ ИНТЕРВАЛ СЛОТОВ\n\n"
+        f"🕒 Текущий: {current_interval} мин\n\n"
+        f"ℹ️ Это определяет сетку времени для всех услуг\n"
+        f"📅 Пример (30 мин): 09:00, 09:30, 10:00, 10:30...\n"
+        f"⚠️ Изменения применяются немедленно\n\n"
+        "Выберите интервал:",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+# ✅ НОВОЕ: Обработка установки интервала
+@router.callback_query(F.data.startswith("set_interval:"))
+async def set_slot_interval(callback: CallbackQuery):
+    """Установка нового интервала слотов"""
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    if not await has_permission(callback.from_user.id, "manage_settings"):
+        await callback.answer("❌ Недостаточно прав", show_alert=True)
+        return
+
+    try:
+        new_interval = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer("❌ Ошибка данных", show_alert=True)
+        return
+
+    old_interval = await SettingsRepository.get_slot_interval()
+    
+    # Если уже установлен
+    if new_interval == old_interval:
+        await callback.answer(f"✅ Уже установлено: {new_interval} мин")
+        return
+
+    # Обновляем
+    success = await SettingsRepository.update_slot_interval(new_interval)
+
+    if success:
+        # Audit log
+        await AuditRepository.log_action(
+            admin_id=callback.from_user.id,
+            action="update_slot_interval",
+            details=f"from={old_interval} to={new_interval}",
+        )
+
+        await callback.answer(
+            f"✅ Интервал изменен: {new_interval} мин", 
+            show_alert=True
+        )
+        
+        logging.info(
+            f"Admin {callback.from_user.id} changed slot_interval: {old_interval} -> {new_interval}"
+        )
+        
+        # Обновляем меню
+        await slot_interval_menu(callback)
+    else:
+        await callback.answer("❌ Ошибка при сохранении", show_alert=True)
 
 
 @router.callback_query(F.data == "settings_change_start")
@@ -270,6 +374,7 @@ async def settings_back(callback: CallbackQuery):
     await callback.message.delete()
 
     start_hour, end_hour = await SettingsRepository.get_work_hours()
+    slot_interval = await SettingsRepository.get_slot_interval()  # ✅ НОВОЕ!
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -278,13 +383,19 @@ async def settings_back(callback: CallbackQuery):
                     text="⏰ Рабочие часы", callback_data="settings_work_hours"
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text="⏱ Интервал слотов", callback_data="settings_slot_interval"
+                )
+            ],
             [InlineKeyboardButton(text="❌ Закрыть", callback_data="settings_close")],
         ]
     )
 
     await callback.message.answer(
         f"⚙️ НАСТРОЙКИ СИСТЕМЫ\n\n"
-        f"⏰ Рабочие часы: {start_hour:02d}:00 - {end_hour:02d}:00\n\n"
+        f"⏰ Рабочие часы: {start_hour:02d}:00 - {end_hour:02d}:00\n"
+        f"⏱ Интервал слотов: {slot_interval} мин\n\n"
         "Выберите настройку:",
         reply_markup=kb,
     )
