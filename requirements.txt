@@ -29,5 +29,5 @@ sentry-sdk==1.40.0
 # Calendar UI
 aiogram-calendar==0.6.0
 
-# Data Validation
-pydantic==2.6.1
+# Data Validation (compatible with aiogram 3.4.1)
+pydantic==2.5.3
