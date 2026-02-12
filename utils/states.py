@@ -38,6 +38,15 @@ class AdminStates(StatesGroup):
 
 class MassEditStates(StatesGroup):
     """Состояния для массового редактирования"""
+    # Старые состояния (для совместимости)
     awaiting_date_selection = State()
     awaiting_action_selection = State()
     awaiting_confirmation = State()
+    
+    # ✅ Массовый перенос времени
+    awaiting_date_for_time_edit = State()  # Выбор даты
+    awaiting_new_time = State()  # Ввод сдвига времени
+    
+    # Массовая смена услуги
+    awaiting_date_for_service_edit = State()
+    awaiting_new_service = State()
