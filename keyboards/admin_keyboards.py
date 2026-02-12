@@ -15,10 +15,11 @@ ADMIN_MENU = ReplyKeyboardMarkup(
             KeyboardButton(text="📝 Массовое редактирование"),
         ],
         [
-            KeyboardButton(text="✏️ Редактор полей"),  # ✅ P4: Новая кнопка!
+            KeyboardButton(text="✏️ Редактор полей"),
             KeyboardButton(text="📊 Экспорт данных"),
         ],
         [
+            KeyboardButton(text="⚙️ Настройки"),  # ✅ NEW: System settings
             KeyboardButton(text="🔙 Выход из админки"),
         ],
     ],
