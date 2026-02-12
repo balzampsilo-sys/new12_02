@@ -1,22 +1,33 @@
-# Bot dependencies
-aiogram==3.4.1
-aiosqlite==0.19.0
-APScheduler==3.10.4
-python-dotenv==1.0.0
-python-dateutil==2.8.2
-cachetools==5.3.2
-pytz==2023.3.post1
-redis==5.0.1
-sentry-sdk==1.40.0
-aiogram-calendar==1.0.0
-pydantic==2.6.1
+# === PRODUCTION DEPENDENCIES ===
+# Only required dependencies for running the bot
 
-# Code quality and testing tools
-pre-commit==3.6.0
-black==24.1.1
-isort==5.13.2
-flake8==7.0.0
-bandit==1.7.6
-pydocstyle==6.3.0
-pytest==7.4.3
-pytest-asyncio==0.21.1
+# Bot Framework
+aiogram==3.4.1
+
+# Database
+aiosqlite==0.19.0
+
+# Task Scheduling
+APScheduler==3.10.4
+
+# Configuration
+python-dotenv==1.0.0
+
+# Date/Time
+python-dateutil==2.8.2
+pytz==2023.3.post1
+
+# Caching
+cachetools==5.3.2
+
+# Redis (FSM Storage)
+redis==5.0.1
+
+# Error Monitoring
+sentry-sdk==1.40.0
+
+# Calendar UI
+aiogram-calendar==1.0.0
+
+# Data Validation
+pydantic==2.6.1
