@@ -36,16 +36,17 @@ from database.migrations.migration_manager import MigrationManager
 from database.migrations.versions.v004_add_services import AddServicesBackwardCompatible
 from database.migrations.versions.v006_add_booking_history import AddBookingHistory
 from database.migrations.versions.v007_fix_booking_history_constraints import FixBookingHistoryConstraints
+from database.migrations.versions.v008_add_slot_interval import AddSlotInterval  # ✅ NEW
 from database.queries import Database
 from handlers import (
     admin_handlers,
     admin_management_handlers,
     audit_handlers,
     booking_handlers,
-    calendar_handlers,  # ✅ ДОБАВЛЕНО
+    calendar_handlers,
     mass_edit_handlers,
     service_management_handlers,
-    settings_handlers,  # ✅ ДОБАВЛЕНО
+    settings_handlers,
     universal_editor,
     user_handlers,
 )
@@ -165,6 +166,7 @@ async def init_database():
     manager.register(AddServicesBackwardCompatible)
     manager.register(AddBookingHistory)  # P0: История изменений записей
     manager.register(FixBookingHistoryConstraints)  # P0: Исправление CHECK constraint
+    manager.register(AddSlotInterval)  # ✅ P0: Добавление slot_interval_minutes
     await manager.migrate()
 
     logger.info("Database initialized with migrations")
@@ -389,14 +391,14 @@ async def start_bot():
         
         return True
 
-    # ✅ Регистрация роутеров (порядок важен!)
+    # Регистрация роутеров (порядок важен!)
     dp.include_router(universal_editor.router)
     dp.include_router(service_management_handlers.router)
     dp.include_router(admin_management_handlers.router)
     dp.include_router(audit_handlers.router)
     dp.include_router(mass_edit_handlers.router)
-    dp.include_router(settings_handlers.router)  # ✅ ДОБАВЛЕНО
-    dp.include_router(calendar_handlers.router)  # ✅ ДОБАВЛЕНО
+    dp.include_router(settings_handlers.router)
+    dp.include_router(calendar_handlers.router)
     dp.include_router(admin_handlers.router)
     dp.include_router(booking_handlers.router)
     dp.include_router(user_handlers.router)
@@ -407,9 +409,9 @@ async def start_bot():
     logger.info("Bot started successfully")
     logger.info(
         "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
-        "Auto Cleanup, Reminders, Booking History, Settings, Calendar"
+        "Auto Cleanup, Reminders, Booking History, Settings, Calendar, Slot Intervals"
     )
-    logger.info("✅ P0 Fixes Applied: Async Scheduler + Redis Leak + Missing Handlers")
+    logger.info("✅ P0 Fixes Applied: Async Scheduler + Redis Leak + Missing Handlers + v008 Migration")
     
     if SENTRY_ENABLED:
         logger.info(f"Sentry monitoring active: {SENTRY_ENVIRONMENT}")
