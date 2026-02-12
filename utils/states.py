@@ -1,48 +1,29 @@
-"""Состояния FSM"""
+"""FSM состояния для бота"""
 
 from aiogram.fsm.state import State, StatesGroup
 
 
+class BookingStates(StatesGroup):
+    """States для процесса бронирования"""
+    waiting_for_date = State()
+    waiting_for_time = State()
+    waiting_for_confirmation = State()
+
+
 class AdminStates(StatesGroup):
-    """Состояния для администраторов"""
-
-    # Управление админами
-    awaiting_new_admin_id = State()
-    awaiting_admin_username = State()
-
-    # Рассылка
-    awaiting_broadcast_message = State()
-
-    # Блокировка слотов (старый способ - текстовый)
+    """States для админ-панели"""
+    awaiting_broadcast = State()
     awaiting_block_date = State()
     awaiting_block_time = State()
     awaiting_block_reason = State()
-
-    # Блокировка через календарь ✅ NEW
-    awaiting_block_reason_calendar = State()  # После выбора времени через календарь
-
-    # Управление услугами
-    service_awaiting_name = State()
-    service_awaiting_description = State()
-    service_awaiting_duration = State()
-    service_awaiting_price = State()
-    service_edit_value = State()
-
-    # Настройки системы ✅ NEW
+    awaiting_admin_id = State()
+    awaiting_removal_id = State()
     awaiting_work_hours_start = State()
     awaiting_work_hours_end = State()
-
-
-class FieldEditStates(StatesGroup):
-    """Состояния для редактирования полей"""
-
-    selecting_field_type = State()
-    selecting_record = State()
-    entering_new_value = State()
-
-
-class MassEditStates(StatesGroup):
-    """Состояния для массового редактирования"""
-
-    awaiting_date_for_time_edit = State()  # Дата для массового переноса
-    awaiting_new_time = State()  # Новое время (сдвиг)
+    
+    # Календарные состояния
+    reschedule_select_date = State()
+    reschedule_select_time = State()
+    block_dates_start = State()
+    block_dates_end = State()
+    block_dates_reason = State()
