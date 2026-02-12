@@ -39,7 +39,12 @@ class ServiceRepository:
                         color=row["color"],
                         is_active=bool(row["is_active"]),
                         display_order=row["display_order"],
-                        slot_interval_minutes=row.get("slot_interval_minutes", 60),  # ✅ NEW
+                        # ✅ FIX: sqlite3.Row doesn't have .get() method
+                        slot_interval_minutes=(
+                            row["slot_interval_minutes"] 
+                            if "slot_interval_minutes" in row.keys() 
+                            else 60
+                        ),
                     )
                     for row in rows
                 ]
@@ -63,7 +68,12 @@ class ServiceRepository:
                     color=row["color"],
                     is_active=bool(row["is_active"]),
                     display_order=row["display_order"],
-                    slot_interval_minutes=row.get("slot_interval_minutes", 60),  # ✅ NEW
+                    # ✅ FIX: sqlite3.Row doesn't have .get() method
+                    slot_interval_minutes=(
+                        row["slot_interval_minutes"] 
+                        if "slot_interval_minutes" in row.keys() 
+                        else 60
+                    ),
                 )
 
     @staticmethod
