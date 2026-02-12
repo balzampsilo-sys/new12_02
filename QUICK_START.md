@@ -22,7 +22,6 @@ chmod +x install.sh
 - ✅ Установит Docker и Docker Compose (если нет)
 - ✅ Создаст `.env` файл
 - ✅ Запросит Bot Token и Admin IDs
-- ✅ Предложит настроить Sentry (опционально)
 - ✅ Запустит бот и Redis в Docker
 
 ### 🪠 Windows
@@ -63,16 +62,21 @@ docker compose up -d --build
 2. Отправьте любое сообщение
 3. Скопируйте ваш ID
 
-### 3. (Опционально) Настроить Sentry
+### 3. (Опционально) Мониторинг ошибок
 
-1. Зарегистрируйтесь на [sentry.io](https://sentry.io) (бесплатно)
-2. Создайте проект: Python
-3. Скопируйте DSN
-4. Добавьте в `.env`:
+> ⚠️ **Важно:** Sentry заблокирован в России. См. [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md)
+
+**По умолчанию используется встроенное логирование:**
+
 ```bash
-SENTRY_ENABLED=True
-SENTRY_DSN=https://your-key@o123.ingest.sentry.io/456
+# Просмотр логов
+docker compose logs -f bot
+
+# Фильтр по ошибкам
+docker compose logs -f bot | grep ERROR
 ```
+
+**Альтернативы:** см. [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md) для self-hosted Sentry, Hawk.so и других решений.
 
 ---
 
@@ -234,12 +238,9 @@ restart: always  # уже есть!
 REDIS_PASSWORD=your_very_strong_password_here
 ```
 
-2. **Настройте Sentry:**
-```bash
-SENTRY_ENABLED=True
-SENTRY_DSN=your-sentry-dsn
-SENTRY_ENVIRONMENT=production
-```
+2. **Мониторинг:**
+- Используйте встроенное логирование
+- Или см. [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md)
 
 3. **Настройте регулярные бэкапы:**
 ```bash
@@ -269,13 +270,22 @@ docker stats
 du -sh data/ backups/ logs/
 ```
 
-### Sentry Dashboard
+### Логирование
 
-Откройте [sentry.io](https://sentry.io) для просмотра:
-- 🚨 Real-time ошибки
-- 📊 Performance metrics
-- 👥 Пользователи с ошибками
-- 📈 Тренды и графики
+**Встроенное логирование (работает из коробки):**
+
+```bash
+# Реальное время
+docker compose logs -f bot
+
+# Только ошибки
+docker compose logs bot | grep ERROR
+
+# Последние 100 строк
+docker compose logs --tail=100 bot
+```
+
+**Для продвинутого мониторинга:** см. [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md)
 
 ---
 
@@ -294,6 +304,7 @@ du -sh data/ backups/ logs/
 ## 📚 Дополнительные ресурсы
 
 - 📝 [CRITICAL_FIXES_COMPLETED.md](CRITICAL_FIXES_COMPLETED.md) - Полный отчет о изменениях
+- 🚨 [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md) - Альтернативы Sentry
 - 📊 [Tests Documentation](tests/) - Документация по тестам
 - 🔧 [.env.example](.env.example) - Пример конфигурации
 
