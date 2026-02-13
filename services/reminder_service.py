@@ -3,6 +3,7 @@
 Priority: P0 (High)
 Функции:
 - Напоминание за 24 часа
+- Напоминание за 2 часа (NEW!)
 - Напоминание за 1 час
 - Автоматическая отмена неподтвержденных записей
 """
@@ -80,6 +81,91 @@ class ReminderService:
 
         except Exception as e:
             logging.error(f"❌ Error in send_reminders_24h: {e}")
+            return 0, 0
+
+    @staticmethod
+    async def send_reminders_2h(bot: Bot) -> Tuple[int, int]:
+        """Отправить напоминания за 2 часа до записи (NEW!)
+        
+        ✅ РЕАЛИЗОВАНО: Ранее отсутствовало, несмотря на config.REMINDER_HOURS_BEFORE_2H
+
+        Args:
+            bot: Экземпляр бота для отправки сообщений
+
+        Returns:
+            Tuple[success_count, total_count]
+        """
+        try:
+            # Получаем текущее время и +2 часа
+            now = now_local()
+            two_hours_later = now + timedelta(hours=2)
+
+            # Округляем до часа для точности
+            target_time = two_hours_later.replace(minute=0, second=0, microsecond=0)
+            target_date = target_time.strftime("%Y-%m-%d")
+            target_time_str = target_time.strftime("%H:%M")
+
+            # Получаем все записи на целевую дату
+            bookings = await BookingRepository.get_bookings_for_date(target_date)
+
+            if not bookings:
+                return 0, 0
+
+            # Фильтруем записи на ближайшие 2 часа
+            target_bookings = [
+                b
+                for b in bookings
+                if b["time"] == target_time_str or b["time"] == target_time_str.replace(":00", "")
+            ]
+
+            if not target_bookings:
+                return 0, 0
+
+            success_count = 0
+            total_count = len(target_bookings)
+
+            for booking in target_bookings:
+                try:
+                    # Получаем информацию об услуге
+                    service = await ServiceRepository.get_service_by_id(booking["service_id"])
+                    service_name = service.name if service else "Консультация"
+
+                    # Форматируем сообщение
+                    date_display = (
+                        "сегодня" if target_date == now.strftime("%Y-%m-%d")
+                        else target_time.strftime("%d.%m.%Y")
+                    )
+                    
+                    message = (
+                        f"⏰ НАПОМИНАНИЕ О ЗАПИСИ\n\n"
+                        f"📅 {date_display.capitalize()}, {target_time.strftime('%d.%m.%Y')}\n"
+                        f"🕒 Время: {booking['time']}\n"
+                        f"📋 Услуга: {service_name}\n"
+                        f"⏱ Длительность: {booking['duration_minutes']} минут\n\n"
+                        f"⏰ Через 2 часа\n"
+                        f"Пожалуйста, подготовьтесь к визиту!"
+                    )
+
+                    await bot.send_message(booking["user_id"], message)
+                    success_count += 1
+
+                    logging.info(
+                        f"✅ Reminder 2h sent to user {booking['user_id']} "
+                        f"for {target_date} {booking['time']}"
+                    )
+
+                except Exception as e:
+                    logging.error(
+                        f"❌ Failed to send 2h reminder to user {booking['user_id']}: {e}"
+                    )
+
+            if success_count > 0:
+                logging.info(f"📊 Reminders 2h: sent {success_count}/{total_count}")
+
+            return success_count, total_count
+
+        except Exception as e:
+            logging.error(f"❌ Error in send_reminders_2h: {e}")
             return 0, 0
 
     @staticmethod
