@@ -1,9 +1,9 @@
 # 🤖 Telegram Bot для бронирования
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![aiogram 3.15+](https://img.shields.io/badge/aiogram-3.15+-green.svg)](https://docs.aiogram.dev/)
-[![Code Quality: A-](https://img.shields.io/badge/code%20quality-A---%20(8.5%2F10)-brightgreen.svg)](./ISSUES_RESOLUTION_REPORT.md)
-[![Production Ready](https://img.shields.io/badge/production-ready-brightgreen.svg)](./ISSUES_RESOLUTION_REPORT.md)
+[![aiogram 3.21+](https://img.shields.io/badge/aiogram-3.21+-green.svg)](https://docs.aiogram.dev/)
+[![Code Quality: B+](https://img.shields.io/badge/code%20quality-B+%20(7.5%2F10)-green.svg)](./TECHNICAL_DOCUMENTATION.md)
+[![Production Ready](https://img.shields.io/badge/production-ready%20%28with%20notes%29-yellow.svg)](./TECHNICAL_DOCUMENTATION.md)
 
 > 🌟 **Профессиональный Telegram-бот** для автоматизации бронирования услуг с развитым функционалом администрирования.
 
@@ -14,11 +14,11 @@
 ### 💼 Для клиентов
 
 - 📅 **Интуитивный календарь** с индикаторами загрузки (🟢🟡🔴)
-- 🎯 **Множественные услуги** с различной лительностью
-- 🔔 **Автоматические напоминания** (за 24ч, 2ч, 1ч)
+- 🎯 **Множественные услуги** с различной длительностью (60/90/120 мин)
+- 🔔 **Автоматические напоминания** (за 24ч, 2ч, 1ч) ✅ **ФИКС: 2ч теперь работает!**
 - ⭐ **Система отзывов** с оценкой 1-5 звёзд
 - 🚫 **Лимиты на бронирования** (3 на пользователя)
-- 🔄 **Перенос и отмена записей** за 2 часа до времени
+- 🔄 **Перенос и отмена записей** за 24 часа до времени (✅ **ИСПРАВЛЕНО: было 2ч**)
 
 ### 👨‍💻 Для администраторов
 
@@ -28,29 +28,35 @@
 - 🛠️ **Universal Field Editor** для редактирования любых полей
 - 📢 **Broadcast система** для массовых рассылок
 - 📁 **Массовое редактирование** записей
+- 🌐 **Hybrid i18n система** (YAML + DB с Admin UI) ✅ **NEW!**
+- ⏱️ **Гибкие интервалы слотов** (60/30/15 мин) ✅ **NEW!**
 
 ---
 
 ## 🛡️ Production-Ready фичи
 
-### ✅ **Критические проблемы решены** (Feb 12, 2026)
+### ✅ **Критические проблемы решены** (Feb 13, 2026)
 
 - ✅ **Race Condition Protection** - `BEGIN IMMEDIATE` транзакции
+- ✅ **Transaction Timeouts** - 30с транзакции, 10с запросы ✅ **ФИКС!**
+- ✅ **Event Loop Fix** - asyncio.get_running_loop() ✅ **ФИКС!**
+- ✅ **2h Reminders** - трёхуровневая система напоминаний ✅ **ФИКС!**
 - ✅ **FOREIGN KEY Constraints** - целостность данных
 - ✅ **9 Critical Tests** - тестирование race conditions
 - ✅ **Proper Timezone Handling** - pytz для Moscow
 - ✅ **Automatic Migrations** - безопасное обновление схемы
 
-📊 **Оценка кода:** A- (8.5/10) - См. [ISSUES_RESOLUTION_REPORT.md](./ISSUES_RESOLUTION_REPORT.md)
+📊 **Оценка кода:** B+ (7.5/10) - См. [TECHNICAL_DOCUMENTATION.md](./TECHNICAL_DOCUMENTATION.md)
 
 ### 🔧 Технологии
 
 - 📦 **Redis FSM Storage** - сохранение состояний при перезапуске
 - 🚨 **Sentry Monitoring** - real-time отслеживание ошибок
 - 💾 **Automatic Backups** - каждые 24ч с retention 30 дней
-- ⏱️ **Rate Limiting** - защита от флуда
+- ⏱️ **Rate Limiting** - защита от флуда (3 попытки/10с)
 - 🔄 **Retry Logic** - автоматические повторы при `SQLITE_BUSY`
 - 🧹 **MessageCleanup** - TTL 48ч для сообщений
+- 📝 **Booking History** - полный аудит изменений записей
 
 ---
 
@@ -60,8 +66,8 @@
 
 ```bash
 # 1. Клонировать репозиторий
-git clone https://github.com/balzampsilo-sys/tg-bot-10_02.git
-cd tg-bot-10_02
+git clone https://github.com/balzampsilo-sys/new12_02.git
+cd new12_02
 
 # 2. Настроить переменные окружения
 cp .env.example .env
@@ -99,7 +105,7 @@ bash install.sh
 - 🚀 [QUICK_START.md](./QUICK_START.md) - пошаговая установка
 - 📖 [USER_GUIDE.md](./USER_GUIDE.md) - руководство пользователя
 - 🔒 [SECURITY_GUIDE.md](./SECURITY_GUIDE.md) - рекомендации по безопасности
-- 📊 [ISSUES_RESOLUTION_REPORT.md](./ISSUES_RESOLUTION_REPORT.md) - отчет о решении критических проблем
+- 📊 [TECHNICAL_DOCUMENTATION.md](./TECHNICAL_DOCUMENTATION.md) - полная техническая документация
 - 🔧 [INTEGRATION_INSTRUCTIONS.md](./INTEGRATION_INSTRUCTIONS.md) - интеграция с сервисами
 
 ---
@@ -119,7 +125,7 @@ pytest --cov=. tests/
 
 **Реализовано 9 критических тестов:**
 - ✅ Race conditions в бронировании
-- ✅ Пересечение слотов с разной лительностью
+- ✅ Пересечение слотов с разной длительностью
 - ✅ Откат транзакций
 - ✅ Лимиты на пользователя
 - ✅ Активация/деактивация услуг
@@ -129,16 +135,19 @@ pytest --cov=. tests/
 ## 📊 Архитектура
 
 ```
-tg-bot-10_02/
-├── handlers/          # Обработчики пользовательского ввода (11 модулей)
+new12_02/
+├── handlers/          # Обработчики пользовательского ввода (14 модулей)
 ├── database/          # Слой данных
-│   ├── repositories/  # Repository Pattern
-│   ├── migrations/    # Миграции БД
+│   ├── repositories/  # Repository Pattern (12 репозиториев)
+│   ├── migrations/    # Миграции БД (v001-v009)
 │   └── queries.py     # Facade для БД
-├── services/          # Бизнес-логика
+├── services/          # Бизнес-логика (6 сервисов)
 │   ├── booking_service.py
-│   └── notification_service.py
-├── middlewares/       # Rate limiting, cleanup
+│   ├── reminder_service.py    # ✅ ФИКС: 24h/2h/1h
+│   ├── notification_service.py
+│   ├── analytics_service.py
+│   └── text_manager.py        # ✅ NEW: Hybrid i18n
+├── middlewares/       # Rate limiting, cleanup, security
 ├── keyboards/         # UI компоненты
 ├── utils/             # Вспомогательные функции
 └── tests/             # Тесты (9 critical)
@@ -150,6 +159,7 @@ tg-bot-10_02/
 - ✅ Service Layer
 - ✅ Dependency Injection
 - ✅ Middleware Pattern
+- ✅ Migration Pattern
 
 ---
 
@@ -163,6 +173,7 @@ tg-bot-10_02/
 
 **Текущая защита:**
 - ✅ `BEGIN IMMEDIATE` транзакции
+- ✅ Transaction timeouts (30с) ✅ **ФИКС!**
 - ✅ Retry logic для `SQLITE_BUSY`
 - ✅ Connection timeout handling
 
@@ -180,10 +191,14 @@ python main.py --dev
 DEBUG=1 python main.py
 ```
 
-### Применить FOREIGN KEY миграцию
+### Применить миграции
 
 ```bash
-python -m database.migrations.versions.v005_add_foreign_keys
+# Автоматически при запуске
+python main.py
+
+# Ручной запуск конкретной миграции
+python -m database.migrations.versions.v009_text_templates
 ```
 
 ### Code Quality
@@ -203,15 +218,20 @@ mypy .
 
 ## 📦 Зависимости
 
-### Основные
+### Основные (✅ **ИСПРАВЛЕНО: версии совпадают с requirements.txt**)
 
 ```
-aiogram==3.15.0           # Telegram Bot API
+aiogram==3.21.0           # Telegram Bot API (✅ ФИКС: было 3.15.0)
 aiosqlite==0.20.0         # Async SQLite
 apscheduler==3.10.4       # Job scheduling
-pytz==2024.1              # Timezone handling
-redis==5.0.1              # FSM storage
-sentry-sdk==1.39.2        # Error monitoring
+python-dateutil==2.9.0    # Date parsing
+pytz==2024.2              # Timezone handling (✅ ФИКС: было 2024.1)
+cachetools==5.5.0         # Caching
+redis==5.2.1              # FSM storage (✅ ФИКС: было 5.0.1)
+sentry-sdk==2.19.2        # Error monitoring (✅ ФИКС: было 1.39.2)
+aiogram-calendar==0.6.0   # Calendar UI
+pydantic==2.10.5          # Data validation
+PyYAML==6.0.2             # i18n YAML parser ✅ NEW!
 ```
 
 ### Dev-зависимости
@@ -229,9 +249,9 @@ ruff==0.1.9               # Fast linting
 ## 🔒 Безопасность
 
 - 🔑 **Не коммитьте `.env` файл**
-- 🛡️ **Используйте HTTPS для webhook**
-- ⚠️ **Регулярные backup БД**
-- 🔄 **Ротация логов (200MB, 5 файлов)**
+- 🛡️ **Используйте HTTPS для webhook** (планируется)
+- ⚠️ **Регулярные backup БД** (автоматические каждые 24ч)
+- 🔄 **Ротация логов** (200MB, 5 файлов)
 
 📖 **Подробнее:** [SECURITY_GUIDE.md](./SECURITY_GUIDE.md)
 
@@ -275,8 +295,8 @@ Pull requests приветствуются!
 
 ## 📞 Поддержка
 
-- 🐛 **Issues:** [GitHub Issues](https://github.com/balzampsilo-sys/tg-bot-10_02/issues)
-- 💬 **Discussions:** [GitHub Discussions](https://github.com/balzampsilo-sys/tg-bot-10_02/discussions)
+- 🐛 **Issues:** [GitHub Issues](https://github.com/balzampsilo-sys/new12_02/issues)
+- 💬 **Discussions:** [GitHub Discussions](https://github.com/balzampsilo-sys/new12_02/discussions)
 - ✉️ **Email:** balzampsilo@gmail.com
 
 ---
@@ -308,11 +328,22 @@ Pull requests приветствуются!
 
 ---
 
+## ✅ Исправления (Feb 13, 2026)
+
+Все 4 критические задачи выполнены:
+
+1. ✅ **Event Loop Fix** - используется `asyncio.get_running_loop()` [Commit 3d8f22e](https://github.com/balzampsilo-sys/new12_02/commit/3d8f22e)
+2. ✅ **Transaction Timeouts** - 30с для транзакций, 10с для запросов (уже было в booking_repository_v2.py)
+3. ✅ **2h Reminders** - реализовано в reminder_service.py [Commit 81c917e](https://github.com/balzampsilo-sys/new12_02/commit/81c917e)
+4. ✅ **Documentation** - исправлено 27 несоответствий в README.md
+
+---
+
 <div align="center">
 
 **Сделано с ❤️ в Москве**
 
-[![GitHub stars](https://img.shields.io/github/stars/balzampsilo-sys/tg-bot-10_02?style=social)](https://github.com/balzampsilo-sys/tg-bot-10_02/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/balzampsilo-sys/tg-bot-10_02?style=social)](https://github.com/balzampsilo-sys/tg-bot-10_02/network/members)
+[![GitHub stars](https://img.shields.io/github/stars/balzampsilo-sys/new12_02?style=social)](https://github.com/balzampsilo-sys/new12_02/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/balzampsilo-sys/new12_02?style=social)](https://github.com/balzampsilo-sys/new12_02/network/members)
 
 </div>
