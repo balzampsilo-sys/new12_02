@@ -20,8 +20,8 @@ from aiogram.types import (
 
 from config import BROADCAST_DELAY, DAY_NAMES
 from database.queries import Database
-from database.repositories.settings_repository import SettingsRepository  # ✅ ДОБАВЛЕНО
-from keyboards.admin_keyboards import ADMIN_MENU
+from database.repositories.settings_repository import SettingsRepository
+from keyboards.admin_keyboards import ADMIN_MENU, create_admin_calendar  # ✅ ADDED
 from keyboards.user_keyboards import MAIN_MENU
 from services.analytics_service import AnalyticsService
 from utils.helpers import is_admin, now_local
@@ -115,12 +115,10 @@ async def schedule_view(message: Message):
     today = now_local()
     start_date = today.strftime("%Y-%m-%d")
 
-    # ✅ ОБНОВЛЕНО: Используем новый метод Database API с услугами
     schedule = await Database.get_week_schedule(start_date, days=7)
 
     # Группируем по датам
     schedule_by_date = defaultdict(list)
-    # ✅ ИСПРАВЛЕНО: SQL возвращает 6 колонок (date, time, username, service_name, duration, price)
     for date_str, time_str, username, service_name, duration, price in schedule:
         schedule_by_date[date_str].append((time_str, username, service_name))
 
@@ -135,12 +133,11 @@ async def schedule_view(message: Message):
             day_name = DAY_NAMES[current_date.weekday()]
             text += f"📆 {current_date.strftime('%d.%m')} ({day_name})\n"
             for time_str, username, service_name in bookings:
-                # ✅ ДОБАВЛЕНО: отображение услуги
                 text += f"  🕒 {time_str} - @{username} ({service_name})\n"
             text += "\n"
 
-    if len(text.split("\n")) == 3:  # только заголовок
-        text += "📭 Нет записей на ближайшую неделю"
+    if len(text.split("\n")) == 3:
+        text += "📬 Нет записей на ближайшую неделю"
 
     await message.answer(text, reply_markup=ADMIN_MENU)
 
@@ -152,7 +149,6 @@ async def clients_list(message: Message):
         await message.answer("❌ Нет доступа")
         return
 
-    # Используем новые методы Database API
     top_clients = await Database.get_top_clients(limit=10)
     total_users = await Database.get_total_users_count()
 
@@ -162,13 +158,11 @@ async def clients_list(message: Message):
     if top_clients:
         text += "🏆 ТОП-10 по записям:\n\n"
         for i, (user_id, total) in enumerate(top_clients, 1):
-            # ✅ ДОБАВЛЕНО: кликабельная ссылка на пользователя
             user_link = f"[{user_id}](tg://user?id={user_id})"
             text += f"{i}. {user_link}: {total} записей\n"
     else:
         text += "Пока нет записей"
 
-    # ✅ ДОБАВЛЕНО: Markdown parse_mode
     await message.answer(text, reply_markup=ADMIN_MENU, parse_mode="Markdown")
 
 
@@ -205,22 +199,18 @@ async def export_data(message: Message):
         await message.answer("❌ Нет доступа")
         return
 
-    # Получаем все записи через Database API
     today = now_local()
-    start_date = (today - timedelta(days=365)).strftime("%Y-%m-%d")  # За последний год
-    bookings_data = await Database.get_week_schedule(start_date, days=730)  # 2 года
+    start_date = (today - timedelta(days=365)).strftime("%Y-%m-%d")
+    bookings_data = await Database.get_week_schedule(start_date, days=730)
 
-    # Создаем CSV в памяти
     output = io.StringIO()
     writer = csv.writer(output)
-    # ✅ ДОБАВЛЕНО: колонки Услуга, Длительность, Цена
     writer.writerow(["Дата", "Время", "Username", "Услуга", "Длительность (мин)", "Цена"])
 
     for date_str, time_str, username, service_name, duration, price in bookings_data:
         writer.writerow([date_str, time_str, username, service_name, duration, price])
 
-    # Отправляем файл
-    csv_data = output.getvalue().encode("utf-8-sig")  # BOM для Excel
+    csv_data = output.getvalue().encode("utf-8-sig")
     file = BufferedInputFile(csv_data, filename="bookings_export.csv")
 
     await message.answer_document(
@@ -253,7 +243,6 @@ async def broadcast_start(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.awaiting_broadcast_message)
 async def broadcast_execute(message: Message, state: FSMContext):
     """Выполнение рассылки с rate limiting (SECURE)"""
-    # CRITICAL SECURITY FIX: проверка админа в FSM-обработчике
     if not await is_admin(message.from_user.id):
         await state.clear()
         await message.answer("❌ Нет доступа")
@@ -269,8 +258,6 @@ async def broadcast_execute(message: Message, state: FSMContext):
         return
 
     broadcast_text = message.text
-
-    # Используем новый метод Database API
     user_ids = await Database.get_all_users()
 
     await message.answer(f"📤 Начинаю рассылку {len(user_ids)} пользователям...")
@@ -278,7 +265,6 @@ async def broadcast_execute(message: Message, state: FSMContext):
     success_count = 0
     fail_count = 0
 
-    # Используем константу из config
     for user_id in user_ids:
         try:
             await message.bot.send_message(user_id, broadcast_text)
@@ -305,7 +291,6 @@ async def cleanup_old_bookings(callback: CallbackQuery):
         return
 
     today_str = now_local().strftime("%Y-%m-%d")
-
     deleted_count = await Database.cleanup_old_bookings(today_str)
 
     await callback.message.edit_text(
@@ -342,62 +327,94 @@ async def block_slots_menu(callback: CallbackQuery):
     await callback.answer()
 
 
+# ✨ NEW: Заменяем текстовый ввод на календарь!
 @router.callback_query(F.data == "block_slot_start")
 async def block_slot_start(callback: CallbackQuery, state: FSMContext):
-    """Начало блокировки слота"""
+    """✨ Начало блокировки слота - календарь"""
     if not await is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    await state.set_state(AdminStates.awaiting_block_date)
+    await state.clear()  # Очищаем state перед новой операцией
+
+    today = now_local()
+    kb = await create_admin_calendar(
+        today.year, today.month, callback_prefix="block_date", allow_past=False
+    )
 
     await callback.message.edit_text(
         "🔒 БЛОКИРОВКА СЛОТА\n\n"
-        "Шаг 1: Введите дату в формате ГГГГ-ММ-ДД\n"
-        "Например: 2026-02-15\n\n"
-        "Для отмены отправьте /cancel"
+        "Шаг 1: Выберите дату из календаря\n\n"
+        "🟢 = все слоты свободны\n"
+        "🟡 = есть свободные слоты\n"
+        "🔴 = все занято",
+        reply_markup=kb,
     )
     await callback.answer()
 
 
-@router.message(AdminStates.awaiting_block_date)
-async def block_slot_date(message: Message, state: FSMContext):
-    """Обработка даты для блокировки"""
-    if not await is_admin(message.from_user.id):
-        await state.clear()
+# ✨ NEW: Навигация по календарю
+@router.callback_query(F.data.startswith("block_date_cal:"))
+async def block_date_calendar_nav(callback: CallbackQuery, state: FSMContext):
+    """Навигация по месяцам в календаре блокировки"""
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    if message.text == "/cancel":
-        await state.clear()
-        await message.answer("❌ Блокировка отменена", reply_markup=ADMIN_MENU)
-        return
+    await callback.answer("⏳ Загружаю...")
 
-    # Валидация даты
+    _, year_month = callback.data.split(":", 1)
+    year, month = map(int, year_month.split("-"))
+
+    kb = await create_admin_calendar(year, month, callback_prefix="block_date", allow_past=False)
+
     try:
-        date_obj = datetime.strptime(message.text, "%Y-%m-%d")
-        date_str = message.text
-
-        # Проверка что дата не в прошлом
-        if date_obj.date() < now_local().date():
-            await message.answer(
-                "❌ Нельзя блокировать прошедшие даты\n\n" "Введите корректную дату:"
-            )
-            return
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат даты\n\n" "Используйте формат ГГГГ-ММ-ДД\n" "Например: 2026-02-15"
+        await callback.message.edit_text(
+            "🔒 БЛОКИРОВКА СЛОТА\n\n"
+            "Шаг 1: Выберите дату\n\n"
+            "🟢🟡🔴 — статус дня",
+            reply_markup=kb,
         )
+    except Exception as e:
+        logging.error(f"Error editing message in block_date_calendar_nav: {e}")
+        await callback.message.edit_reply_markup(reply_markup=kb)
+
+
+# ✨ NEW: Выбор даты из календаря
+@router.callback_query(F.data.startswith("block_date:"))
+async def block_date_selected(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбранной даты для блокировки"""
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    # Извлекаем дату
+    date_str = callback.data.split(":", 1)[1]
+
+    # Проверка что дата не в прошлом
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    if date_obj.date() < now_local().date():
+        await callback.answer("❌ Нельзя блокировать прошедшие даты", show_alert=True)
         return
 
     await state.update_data(block_date=date_str)
     await state.set_state(AdminStates.awaiting_block_time)
 
-    await message.answer(
+    await callback.message.edit_text(
         f"✅ Дата: {date_str}\n\n"
         "Шаг 2: Введите время в формате ЧЧ:ММ\n"
         "Например: 14:00\n\n"
         "Или введите 'all' чтобы заблокировать весь день"
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "block_date_cancel")
+async def block_date_cancel(callback: CallbackQuery, state: FSMContext):
+    """Отмена блокировки"""
+    await state.clear()
+    await callback.message.delete()
+    await callback.answer("Отменено")
 
 
 @router.message(AdminStates.awaiting_block_time)
@@ -433,10 +450,8 @@ async def block_slot_time(message: Message, state: FSMContext):
         time_obj = datetime.strptime(message.text, "%H:%M")
         hour = time_obj.hour
 
-        # ✅ КРИТИЧНО: Получаем ДИНАМИЧЕСКИЕ рабочие часы из БД!
         start_hour, end_hour = await SettingsRepository.get_work_hours()
 
-        # ✅ ИСПРАВЛЕНО: Используем динамические значения!
         if not (start_hour <= hour < end_hour):
             await message.answer(
                 f"❌ Время должно быть в рабочих часах ({start_hour}:00 - {end_hour}:00)\n\n"
@@ -479,17 +494,14 @@ async def block_slot_reason(message: Message, state: FSMContext):
 
     # Блокировка всего дня
     if time_str == "all":
-        # ✅ КРИТИЧНО: Получаем ДИНАМИЧЕСКИЕ рабочие часы из БД!
         start_hour, end_hour = await SettingsRepository.get_work_hours()
 
         blocked_count = 0
         failed_count = 0
         all_cancelled_users = []
 
-        # ✅ ИСПРАВЛЕНО: Используем динамические границы!
         for hour in range(start_hour, end_hour):
             slot_time = f"{hour:02d}:00"
-            # ✅ ОБНОВЛЕНО: используем новый метод с уведомлениями
             success, cancelled_users = await Database.block_slot_with_notification(
                 date_str, slot_time, admin_id, reason
             )
@@ -499,7 +511,7 @@ async def block_slot_reason(message: Message, state: FSMContext):
             else:
                 failed_count += 1
 
-        # Отправляем уведомления всем затронутым пользователям
+        # Отправляем уведомления
         notifications_sent = 0
         for user_data in all_cancelled_users:
             try:
@@ -513,7 +525,7 @@ async def block_slot_reason(message: Message, state: FSMContext):
                 )
                 await bot.send_message(user_data["user_id"], notification_text)
                 notifications_sent += 1
-                await asyncio.sleep(0.05)  # rate limiting
+                await asyncio.sleep(0.05)
             except Exception as e:
                 logging.error(f"Failed to notify user {user_data['user_id']}: {e}")
 
@@ -534,7 +546,7 @@ async def block_slot_reason(message: Message, state: FSMContext):
         )
         return
 
-    # ✅ ОБНОВЛЕНО: Блокировка одного слота с уведомлением
+    # Блокировка одного слота
     success, cancelled_users = await Database.block_slot_with_notification(
         date_str, time_str, admin_id, reason
     )
@@ -542,7 +554,6 @@ async def block_slot_reason(message: Message, state: FSMContext):
     await state.clear()
 
     if success:
-        # Отправляем уведомления
         notifications_sent = 0
         for user_data in cancelled_users:
             try:
