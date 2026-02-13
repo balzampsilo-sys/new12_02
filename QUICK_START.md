@@ -10,8 +10,8 @@
 
 ```bash
 # 1. Склонировать репозиторий
-git clone https://github.com/balzampsilo-sys/tg-bot-10_02.git
-cd tg-bot-10_02
+git clone https://github.com/balzampsilo-sys/new12_02.git
+cd new12_02
 
 # 2. Запустить автоустановщик
 chmod +x install.sh
@@ -24,15 +24,15 @@ chmod +x install.sh
 - ✅ Запросит Bot Token и Admin IDs
 - ✅ Запустит бот и Redis в Docker
 
-### 🪠 Windows
+### 🪟 Windows
 
 ```powershell
 # 1. Установить Docker Desktop
 # Скачать: https://www.docker.com/products/docker-desktop
 
 # 2. Открыть PowerShell и выполнить:
-git clone https://github.com/balzampsilo-sys/tg-bot-10_02.git
-cd tg-bot-10_02
+git clone https://github.com/balzampsilo-sys/new12_02.git
+cd new12_02
 
 # 3. Скопировать .env.example в .env
 copy .env.example .env
@@ -75,8 +75,6 @@ docker compose logs -f bot
 # Фильтр по ошибкам
 docker compose logs -f bot | grep ERROR
 ```
-
-**Альтернативы:** см. [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md) для self-hosted Sentry, Hawk.so и других решений.
 
 ---
 
@@ -124,14 +122,14 @@ docker compose exec redis redis-cli -a botredis123 FLUSHALL
 ### Бэкапы
 
 ```bash
-# Бэкапы автоматически сохраняются в ./backups/
+# Бэкапы автоматически сохраняются в ./backups/ каждые 24 часа
 
 # Создать ручной бэкап
 cp data/bookings.db backups/manual-$(date +%Y%m%d-%H%M%S).db
 
 # Восстановить из бэкапа
 docker compose stop bot
-cp backups/backup-20260212-120000.db data/bookings.db
+cp backups/backup-20260213-120000.db data/bookings.db
 docker compose start bot
 ```
 
@@ -140,14 +138,17 @@ docker compose start bot
 ## 📁 Структура проекта
 
 ```
-tg-bot-10_02/
+new12_02/
 ├── data/              # База данных SQLite
-├── backups/          # Автоматические бэкапы
+├── backups/          # Автоматические бэкапы (каждые 24ч)
 ├── logs/             # Логи бота
-├── handlers/         # Обработчики команд
-├── database/         # Работа с БД
-├── services/         # Бизнес-логика
-├── tests/            # Тесты
+├── handlers/         # Обработчики команд (14 модулей)
+├── database/         # Repositories + Migrations
+├── services/         # Бизнес-логика (6 сервисов)
+├── middlewares/      # Rate limiting, cleanup, security
+├── keyboards/        # UI компоненты
+├── tests/            # Тесты (9 critical)
+├── locales/          # i18n переводы (YAML)
 ├── .env              # Конфигурация
 ├── docker-compose.yml
 └── install.sh        # Автоустановщик
@@ -204,13 +205,16 @@ sudo lsof -i :6379
 # Или изменить порт в docker-compose.yml:
 ports:
   - "6380:6379"  # Использовать порт 6380
+
+# И обновить в .env:
+REDIS_PORT=6380
 ```
 
 ---
 
 ## 🌐 Production Deployment
 
-### VPS (например, DigitalOcean)
+### VPS (DigitalOcean, Timeweb, Reg.ru)
 
 ```bash
 # 1. SSH подключение
@@ -218,16 +222,15 @@ ssh root@your-server-ip
 
 # 2. Установка
 apt update && apt upgrade -y
-git clone https://github.com/balzampsilo-sys/tg-bot-10_02.git
-cd tg-bot-10_02
+git clone https://github.com/balzampsilo-sys/new12_02.git
+cd new12_02
 ./install.sh
 
 # 3. Настроить автозапуск
 sudo systemctl enable docker
 
-# 4. Настроить auto-restart
-# Добавьте в docker-compose.yml:
-restart: always  # уже есть!
+# 4. Auto-restart уже настроен в docker-compose.yml:
+# restart: always
 ```
 
 ### Рекомендации для production
@@ -239,20 +242,21 @@ REDIS_PASSWORD=your_very_strong_password_here
 ```
 
 2. **Мониторинг:**
-- Используйте встроенное логирование
-- Или см. [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md)
+- Встроенное логирование (работает из коробки)
+- [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md) - self-hosted решения
 
 3. **Настройте регулярные бэкапы:**
 ```bash
-# Добавьте в crontab:
-0 3 * * * cd /path/to/tg-bot-10_02 && docker compose exec -T bot python -c "from utils.backup_service import BackupService; BackupService('/app/data/bookings.db', '/app/backups', 30).create_backup()"
+# Бэкапы уже автоматические (каждые 24ч)
+# Retention: 30 дней
+
+# Дополнительно - копирование на внешний сервер:
+0 4 * * * rsync -avz /path/to/new12_02/backups/ user@backup-server:/backups/
 ```
 
 4. **Настройте файервол:**
 ```bash
 sudo ufw allow 22/tcp    # SSH
-sudo ufw allow 80/tcp    # HTTP (если нужен)
-sudo ufw allow 443/tcp   # HTTPS (если нужен)
 sudo ufw enable
 ```
 
@@ -272,8 +276,6 @@ du -sh data/ backups/ logs/
 
 ### Логирование
 
-**Встроенное логирование (работает из коробки):**
-
 ```bash
 # Реальное время
 docker compose logs -f bot
@@ -281,11 +283,15 @@ docker compose logs -f bot
 # Только ошибки
 docker compose logs bot | grep ERROR
 
+# Только критические
+docker compose logs bot | grep CRITICAL
+
 # Последние 100 строк
 docker compose logs --tail=100 bot
-```
 
-**Для продвинутого мониторинга:** см. [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md)
+# С временными метками
+docker compose logs -t bot
+```
 
 ---
 
@@ -297,15 +303,39 @@ docker compose logs --tail=100 bot
 2. ✅ Найдите вашего бота
 3. ✅ Отправьте `/start`
 4. ✅ Бот должен ответить приветствием
-5. ✅ Попробуйте создать бронь
+5. ✅ Попробуйте создать запись
+6. ✅ Проверьте админ-панель (если вы в ADMIN_IDS)
+
+---
+
+## 🚀 Что дальше?
+
+### Настройка услуг
+
+1. Войдите как админ
+2. Меню → "⚙️ Управление услугами"
+3. Добавьте свои услуги с ценами и длительностью
+
+### Настройка расписания
+
+1. Админ-панель → "⚙️ Настройки"
+2. Установите рабочие часы
+3. Настройте лимиты на бронирования
+
+### Локализация (i18n)
+
+1. Админ-панель → "✏️ Редактор текстов"
+2. Измените тексты интерфейса
+3. Изменения применятся мгновенно
 
 ---
 
 ## 📚 Дополнительные ресурсы
 
-- 📝 [CRITICAL_FIXES_COMPLETED.md](CRITICAL_FIXES_COMPLETED.md) - Полный отчет о изменениях
-- 🚨 [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md) - Альтернативы Sentry
-- 📊 [Tests Documentation](tests/) - Документация по тестам
+- 📝 [README.md](README.md) - Основная документация
+- 📊 [CHANGELOG.md](CHANGELOG.md) - История изменений
+- 🚨 [MONITORING_ALTERNATIVES.md](MONITORING_ALTERNATIVES.md) - Мониторинг
+- 📈 [SCALING_GUIDE.md](SCALING_GUIDE.md) - Масштабирование
 - 🔧 [.env.example](.env.example) - Пример конфигурации
 
 ---
@@ -316,12 +346,13 @@ docker compose logs --tail=100 bot
 
 1. 📝 Проверьте Troubleshooting выше
 2. 🔍 Посмотрите логи: `docker compose logs -f bot`
-3. 🐞 Создайте issue на GitHub
+3. 🐞 [Создайте issue](https://github.com/balzampsilo-sys/new12_02/issues)
+4. 💬 [GitHub Discussions](https://github.com/balzampsilo-sys/new12_02/discussions)
 
 ---
 
 **Статус:** 🟢 Production-Ready  
-**Версия:** 1.0.0  
-**Последнее обновление:** 12 февраля 2026
+**Версия:** 1.1.0  
+**Последнее обновление:** 13 февраля 2026
 
 🎉 **Ваш бот готов к работе!**
