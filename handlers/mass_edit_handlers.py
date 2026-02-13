@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from config import WORK_HOURS_END, WORK_HOURS_START
 from database.queries import Database
 from database.repositories.service_repository import ServiceRepository
-from keyboards.admin_keyboards import ADMIN_MENU
+from keyboards.admin_keyboards import ADMIN_MENU, create_admin_calendar  # ✅ ADDED
 from utils.helpers import is_admin, now_local
 from utils.states import MassEditStates
 
@@ -46,58 +46,81 @@ async def mass_edit_menu(message: Message):
     )
 
 
+# === МАССОВЫЙ ПЕРЕНОС ВРЕМЕНИ ===
+
+
 @router.callback_query(F.data == "mass_edit_time")
 async def mass_edit_time_start(callback: CallbackQuery, state: FSMContext):
-    """Начало массового переноса времени"""
+    """✨ Начало массового переноса времени - календарь"""
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    await state.set_state(MassEditStates.awaiting_date_for_time_edit)
+    await state.clear()
+
+    today = now_local()
+    kb = await create_admin_calendar(
+        today.year, today.month, callback_prefix="mass_time_date", allow_past=False
+    )
 
     await callback.message.edit_text(
         "🕒 МАССОВЫЙ ПЕРЕНОС ВРЕМЕНИ\n\n"
-        "Шаг 1: Введите дату для редактирования\n"
-        "Формат: ГГГГ-ММ-ДД\n"
-        "Например: 2026-02-15\n\n"
-        "Для отмены отправьте /cancel"
+        "Шаг 1: Выберите дату для редактирования\n\n"
+        "🟢 = все слоты свободны\n"
+        "🟡 = есть свободные слоты\n"
+        "🔴 = все занято",
+        reply_markup=kb,
     )
     await callback.answer()
 
 
-@router.message(MassEditStates.awaiting_date_for_time_edit)
-async def mass_edit_time_date(message: Message, state: FSMContext):
-    """Обработка даты для массового переноса"""
-    if not is_admin(message.from_user.id):
-        await state.clear()
+@router.callback_query(F.data.startswith("mass_time_date_cal:"))
+async def mass_time_calendar_nav(callback: CallbackQuery, state: FSMContext):
+    """Навигация по календарю массового переноса времени"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    if message.text == "/cancel":
-        await state.clear()
-        await message.answer("❌ Операция отменена", reply_markup=ADMIN_MENU)
+    await callback.answer("⏳ Загружаю...")
+
+    _, year_month = callback.data.split(":", 1)
+    year, month = map(int, year_month.split("-"))
+
+    kb = await create_admin_calendar(year, month, callback_prefix="mass_time_date", allow_past=False)
+
+    try:
+        await callback.message.edit_text(
+            "🕒 МАССОВЫЙ ПЕРЕНОС ВРЕМЕНИ\n\n"
+            "Шаг 1: Выберите дату\n\n"
+            "🟢🟡🔴 — статус дня",
+            reply_markup=kb,
+        )
+    except Exception as e:
+        logging.error(f"Error editing message in mass_time_calendar_nav: {e}")
+        await callback.message.edit_reply_markup(reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("mass_time_date:"))
+async def mass_edit_time_date(callback: CallbackQuery, state: FSMContext):
+    """Обработка даты для массового переноса"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
         return
+
+    # Извлекаем дату
+    date_str = callback.data.split(":", 1)[1]
 
     # Валидация даты
-    try:
-        date_obj = datetime.strptime(message.text, "%Y-%m-%d")
-        if date_obj.date() < now_local().date():
-            await message.answer(
-                "❌ Нельзя редактировать прошедшие даты\n\n" "Введите корректную дату:"
-            )
-            return
-        date_str = message.text
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат даты\n\n" "Используйте формат ГГГГ-ММ-ДД\n" "Например: 2026-02-15"
-        )
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    if date_obj.date() < now_local().date():
+        await callback.answer("❌ Нельзя редактировать прошедшие даты", show_alert=True)
         return
 
     # Получаем записи на эту дату
     bookings = await Database.get_week_schedule(date_str, days=1)
 
     if not bookings:
-        await state.clear()
-        await message.answer(f"ℹ️ Нет записей на {date_str}", reply_markup=ADMIN_MENU)
+        await callback.answer(f"ℹ️ Нет записей на {date_str}", show_alert=True)
         return
 
     await state.update_data(edit_date=date_str, bookings_count=len(bookings))
@@ -114,7 +137,16 @@ async def mass_edit_time_date(message: Message, state: FSMContext):
     text += "Примеры: +2, -1, +3\n\n"
     text += "Все записи будут перенесены на указанное время"
 
-    await message.answer(text)
+    await callback.message.edit_text(text)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "mass_time_date_cancel")
+async def mass_time_cancel(callback: CallbackQuery, state: FSMContext):
+    """Отмена массового переноса"""
+    await state.clear()
+    await callback.message.delete()
+    await callback.answer("Отменено")
 
 
 @router.message(MassEditStates.awaiting_new_time)
@@ -206,69 +238,89 @@ async def mass_edit_time_shift(message: Message, state: FSMContext):
     )
 
 
+# === МАССОВАЯ СМЕНА УСЛУГИ ===
+
+
 @router.callback_query(F.data == "mass_edit_service")
 async def mass_edit_service_start(callback: CallbackQuery, state: FSMContext):
-    """✅ ПОЛНАЯ РЕАЛИЗАЦИЯ: Начало массовой смены услуги"""
+    """✨ Начало массовой смены услуги - календарь"""
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    await state.set_state(MassEditStates.awaiting_date_for_service_edit)
+    await state.clear()
+
+    today = now_local()
+    kb = await create_admin_calendar(
+        today.year, today.month, callback_prefix="mass_service_date", allow_past=False
+    )
 
     await callback.message.edit_text(
         "🔄 МАССОВАЯ СМЕНА УСЛУГИ\n\n"
-        "Шаг 1: Введите дату для редактирования\n"
-        "Формат: ГГГГ-ММ-ДД\n"
-        "Например: 2026-02-15\n\n"
+        "Шаг 1: Выберите дату для редактирования\n\n"
         "Все записи на эту дату получат новую услугу.\n\n"
-        "Для отмены отправьте /cancel"
+        "🟢🟡🔴 — статус дня",
+        reply_markup=kb,
     )
     await callback.answer()
 
 
-@router.message(MassEditStates.awaiting_date_for_service_edit)
-async def mass_edit_service_date(message: Message, state: FSMContext):
-    """Обработка даты для массовой смены услуги"""
-    if not is_admin(message.from_user.id):
-        await state.clear()
+@router.callback_query(F.data.startswith("mass_service_date_cal:"))
+async def mass_service_calendar_nav(callback: CallbackQuery, state: FSMContext):
+    """Навигация по календарю массовой смены услуги"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
-    if message.text == "/cancel":
-        await state.clear()
-        await message.answer("❌ Операция отменена", reply_markup=ADMIN_MENU)
+    await callback.answer("⏳ Загружаю...")
+
+    _, year_month = callback.data.split(":", 1)
+    year, month = map(int, year_month.split("-"))
+
+    kb = await create_admin_calendar(
+        year, month, callback_prefix="mass_service_date", allow_past=False
+    )
+
+    try:
+        await callback.message.edit_text(
+            "🔄 МАССОВАЯ СМЕНА УСЛУГИ\n\n"
+            "Шаг 1: Выберите дату\n\n"
+            "🟢🟡🔴 — статус дня",
+            reply_markup=kb,
+        )
+    except Exception as e:
+        logging.error(f"Error editing message in mass_service_calendar_nav: {e}")
+        await callback.message.edit_reply_markup(reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("mass_service_date:"))
+async def mass_edit_service_date(callback: CallbackQuery, state: FSMContext):
+    """Обработка даты для массовой смены услуги"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
         return
+
+    # Извлекаем дату
+    date_str = callback.data.split(":", 1)[1]
 
     # Валидация даты
-    try:
-        date_obj = datetime.strptime(message.text, "%Y-%m-%d")
-        if date_obj.date() < now_local().date():
-            await message.answer(
-                "❌ Нельзя редактировать прошедшие даты\n\n" "Введите корректную дату:"
-            )
-            return
-        date_str = message.text
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат даты\n\n" "Используйте формат ГГГГ-ММ-ДД\n" "Например: 2026-02-15"
-        )
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    if date_obj.date() < now_local().date():
+        await callback.answer("❌ Нельзя редактировать прошедшие даты", show_alert=True)
         return
 
     # Получаем записи на эту дату
     bookings = await Database.get_week_schedule(date_str, days=1)
 
     if not bookings:
-        await state.clear()
-        await message.answer(f"ℹ️ Нет записей на {date_str}", reply_markup=ADMIN_MENU)
+        await callback.answer(f"ℹ️ Нет записей на {date_str}", show_alert=True)
         return
 
     # Получаем все активные услуги
     services = await ServiceRepository.get_all_services(active_only=True)
 
     if not services:
-        await state.clear()
-        await message.answer(
-            "⚠️ Нет доступных услуг для выбора", reply_markup=ADMIN_MENU
-        )
+        await callback.answer(⚠️ Нет доступных услуг для выбора", show_alert=True)
         return
 
     await state.update_data(service_edit_date=date_str, bookings_count=len(bookings))
@@ -277,17 +329,15 @@ async def mass_edit_service_date(message: Message, state: FSMContext):
     # Создаем клавиатуру с услугами
     keyboard = []
     for service in services:
-        button_text = (
-            f"📝 {service.name}\n"
-            f"⏱ {service.duration_minutes} мин | 💰 {service.price}"
+        button_text = f"📝 {service.name}\n⏱ {service.duration_minutes} мин | 💰 {service.price}"
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=button_text, callback_data=f"mass_service_select:{service.id}"
+                )
+            ]
         )
-        keyboard.append([
-            InlineKeyboardButton(
-                text=button_text,
-                callback_data=f"mass_service_select:{service.id}"
-            )
-        ])
-    
+
     keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="mass_edit_cancel")])
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -300,7 +350,16 @@ async def mass_edit_service_date(message: Message, state: FSMContext):
     text += "\n🔄 Шаг 2: Выберите НОВУЮ услугу\n"
     text += "Она будет применена ко всем записям на эту дату:"
 
-    await message.answer(text, reply_markup=kb)
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "mass_service_date_cancel")
+async def mass_service_cancel(callback: CallbackQuery, state: FSMContext):
+    """Отмена массовой смены услуги"""
+    await state.clear()
+    await callback.message.delete()
+    await callback.answer("Отменено")
 
 
 @router.callback_query(F.data.startswith("mass_service_select:"))
