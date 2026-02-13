@@ -208,45 +208,92 @@ def setup_reminder_jobs(scheduler: AsyncIOScheduler, bot: Bot):
     
     Priority: P0 (High)
     - Напоминание за 24 часа: ежедневно в 10:00
+    - Напоминание за 2 часа: каждые 2 часа (NEW!)
     - Напоминание за 1 час: каждый час
     
-    ✅ ИСПРАВЛЕНО: Используем sync wrappers для APScheduler
-    APScheduler не может вызывать async функции напрямую!
+    ✅ ИСПРАВЛЕНО (P0 CRITICAL):
+    - Используем asyncio.get_running_loop() вместо get_event_loop()
+    - Правильный error handling для отсутствующего loop
+    - Безопасное создание tasks в running loop
+    - Fallback для edge cases
     """
     
-    # ✅ P0 FIX: SYNC wrapper для async функции
+    # ✅ P0 FIX: SYNC wrapper для напоминаний за 24 часа
     def reminder_24h_job():
-        """Синхронный wrapper для отправки напоминаний за 24 часа"""
+        """Синхронный wrapper для отправки напоминаний за 24 часа
+        
+        FIXED: Using asyncio.get_running_loop() instead of deprecated get_event_loop()
+        """
         try:
-            # Создаем task в текущем event loop
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Loop уже запущен - создаем task
-                asyncio.create_task(_reminder_24h_async(bot))
-            else:
-                # Loop не запущен - запускаем напрямую (не должно произойти)
-                loop.run_until_complete(_reminder_24h_async(bot))
+            # ✅ CRITICAL FIX: Используем get_running_loop() (Python 3.10+)
+            try:
+                loop = asyncio.get_running_loop()
+                # Создаём task в уже запущенном event loop
+                loop.create_task(_reminder_24h_async(bot))
+            except RuntimeError:
+                # Edge case: нет запущенного loop (не должно случиться в APScheduler context)
+                logger.critical(
+                    "❌ No running event loop in reminder_24h_job! "
+                    "This should never happen in APScheduler context."
+                )
+                # Fallback: создаём новый loop (последняя надежда)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(_reminder_24h_async(bot))
+                finally:
+                    loop.close()
         except Exception as e:
             logger.error(f"❌ Reminder 24h job wrapper failed: {e}", exc_info=True)
     
-    # ✅ P0 FIX: SYNC wrapper для async функции
-    def reminder_1h_job():
-        """Синхронный wrapper для отправки напоминаний за 1 час"""
+    # ✅ NEW: SYNC wrapper для напоминаний за 2 часа
+    def reminder_2h_job():
+        """Синхронный wrapper для отправки напоминаний за 2 часа (NEW!)"""
         try:
-            # Создаем task в текущем event loop
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Loop уже запущен - создаем task
-                asyncio.create_task(_reminder_1h_async(bot))
-            else:
-                # Loop не запущен - запускаем напрямую (не должно произойти)
-                loop.run_until_complete(_reminder_1h_async(bot))
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_reminder_2h_async(bot))
+            except RuntimeError:
+                logger.critical(
+                    "❌ No running event loop in reminder_2h_job! "
+                    "This should never happen in APScheduler context."
+                )
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(_reminder_2h_async(bot))
+                finally:
+                    loop.close()
+        except Exception as e:
+            logger.error(f"❌ Reminder 2h job wrapper failed: {e}", exc_info=True)
+    
+    # ✅ P0 FIX: SYNC wrapper для напоминаний за 1 час
+    def reminder_1h_job():
+        """Синхронный wrapper для отправки напоминаний за 1 час
+        
+        FIXED: Using asyncio.get_running_loop() instead of deprecated get_event_loop()
+        """
+        try:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_reminder_1h_async(bot))
+            except RuntimeError:
+                logger.critical(
+                    "❌ No running event loop in reminder_1h_job! "
+                    "This should never happen in APScheduler context."
+                )
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(_reminder_1h_async(bot))
+                finally:
+                    loop.close()
         except Exception as e:
             logger.error(f"❌ Reminder 1h job wrapper failed: {e}", exc_info=True)
     
     # Напоминание за 24 часа - ежедневно в 10:00
     scheduler.add_job(
-        reminder_24h_job,  # ✅ Sync функция!
+        reminder_24h_job,
         "cron",
         hour=10,
         minute=0,
@@ -255,9 +302,19 @@ def setup_reminder_jobs(scheduler: AsyncIOScheduler, bot: Bot):
         max_instances=1,
     )
     
+    # ✅ NEW: Напоминание за 2 часа - каждые 2 часа
+    scheduler.add_job(
+        reminder_2h_job,
+        "interval",
+        hours=2,
+        id="reminder_2h",
+        replace_existing=True,
+        max_instances=1,
+    )
+    
     # Напоминание за 1 час - каждый час
     scheduler.add_job(
-        reminder_1h_job,  # ✅ Sync функция!
+        reminder_1h_job,
         "interval",
         hours=1,
         id="reminder_1h",
@@ -265,9 +322,10 @@ def setup_reminder_jobs(scheduler: AsyncIOScheduler, bot: Bot):
         max_instances=1,
     )
     
-    logger.info("⏰ Reminder service activated:")
-    logger.info("  - 24h reminders: daily at 10:00 (via sync wrapper)")
-    logger.info("  - 1h reminders: every hour (via sync wrapper)")
+    logger.info("⏰ Reminder service activated (FIXED event loop handling):")
+    logger.info("  - 24h reminders: daily at 10:00")
+    logger.info("  - 2h reminders: every 2 hours (NEW!)")
+    logger.info("  - 1h reminders: every hour")
 
 
 # ✅ P0 FIX: Async функции для напоминаний (вызываются из sync wrappers)
@@ -279,6 +337,17 @@ async def _reminder_24h_async(bot: Bot):
             logger.info(f"⏰ Reminder 24h job completed: {success}/{total} sent")
     except Exception as e:
         logger.error(f"❌ Reminder 24h async failed: {e}", exc_info=True)
+
+
+# ✅ NEW: Async логика для напоминаний за 2 часа
+async def _reminder_2h_async(bot: Bot):
+    """Async логика отправки напоминаний за 2 часа (NEW!)"""
+    try:
+        success, total = await ReminderService.send_reminders_2h(bot)
+        if total > 0:
+            logger.info(f"⏰ Reminder 2h job completed: {success}/{total} sent")
+    except Exception as e:
+        logger.error(f"❌ Reminder 2h async failed: {e}", exc_info=True)
 
 
 async def _reminder_1h_async(bot: Bot):
@@ -316,7 +385,7 @@ async def get_storage():
             )
             
             logger.info(f"Using RedisStorage: {REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
-            return storage, redis_client  # ✅ P0 FIX: Возвращаем оба!
+            return storage, redis_client
             
         except ImportError:
             logger.warning("Redis library not installed. Install with: pip install redis")
@@ -324,7 +393,7 @@ async def get_storage():
             logger.warning(f"Failed to connect to Redis at {REDIS_HOST}:{REDIS_PORT}: {e}")
     
     logger.info("Using MemoryStorage (FSM states will be lost on restart)")
-    return MemoryStorage(), None  # ✅ Возвращаем tuple
+    return MemoryStorage(), None
 
 
 @async_retry(
@@ -342,7 +411,6 @@ async def start_bot():
 
     bot = Bot(token=BOT_TOKEN)
     
-    # ✅ P0 FIX: Сохраняем redis_client для правильного shutdown
     storage, redis_client = await get_storage()
     dp = Dispatcher(storage=storage)
 
@@ -371,7 +439,7 @@ async def start_bot():
     dp["booking_service"] = booking_service
     dp["notification_service"] = notification_service
     
-    # P0: Настройка автоматических напоминаний (с исправленными sync wrappers)
+    # ✅ P0 FIX: Настройка напоминаний с исправленными event loop wrappers + NEW 2h reminder
     setup_reminder_jobs(scheduler, bot)
 
     # Middlewares (порядок важен!)
@@ -417,10 +485,13 @@ async def start_bot():
     logger.info("Bot started successfully")
     logger.info(
         "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
-        "Auto Cleanup, Reminders, Booking History, Settings, Calendar, Slot Intervals, "
-        "Hybrid i18n (YAML + DB with Admin UI)"  # ✅ NEW
+        "Auto Cleanup, Reminders (24h/2h/1h), Booking History, Settings, Calendar, "
+        "Slot Intervals, Hybrid i18n (YAML + DB with Admin UI)"
     )
-    logger.info("✅ P0 Fixes Applied: Async Scheduler + Redis Leak + v008-v009 Migrations + i18n System")
+    logger.info(
+        "✅ P0 Fixes Applied: Event Loop (asyncio.get_running_loop) + "
+        "2h Reminders + Transaction Timeouts + Redis Leak + Migrations v008-v009"
+    )
     
     if SENTRY_ENABLED:
         logger.info(f"Sentry monitoring active: {SENTRY_ENVIRONMENT}")
@@ -430,12 +501,10 @@ async def start_bot():
     finally:
         logger.info("Shutting down bot...")
         
-        # ✅ P0 FIX: Правильный shutdown для Redis
         if isinstance(storage, RedisStorage):
             await storage.close()
             logger.info("Redis storage closed")
             
-            # ✅ КРИТИЧНО: Закрываем connection pool!
             if redis_client:
                 await redis_client.close()
                 logger.info("Redis connection pool closed")
