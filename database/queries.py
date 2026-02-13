@@ -355,6 +355,19 @@ class Database:
         else:
             return "🔴"
 
+    @staticmethod
+    async def mass_update_service(date_str: str, new_service_id: int) -> int:
+        """✅ НОВЫЙ: Массовое обновление услуги для всех записей на дату
+
+        Args:
+            date_str: Дата в формате YYYY-MM-DD
+            new_service_id: ID новой услуги
+
+        Returns:
+            Количество обновленных записей
+        """
+        return await BookingRepository.mass_update_service(date_str, new_service_id)
+
     # === ПОЛЬЗОВАТЕЛИ (делегирование в UserRepository) ===
 
     @staticmethod
