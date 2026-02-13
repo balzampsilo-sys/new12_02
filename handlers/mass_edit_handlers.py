@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from config import WORK_HOURS_END, WORK_HOURS_START
 from database.queries import Database
 from database.repositories.service_repository import ServiceRepository
-from keyboards.admin_keyboards import ADMIN_MENU, create_admin_calendar  # ✅ ADDED
+from keyboards.admin_keyboards import ADMIN_MENU, create_admin_calendar
 from utils.helpers import is_admin, now_local
 from utils.states import MassEditStates
 
@@ -320,7 +320,7 @@ async def mass_edit_service_date(callback: CallbackQuery, state: FSMContext):
     services = await ServiceRepository.get_all_services(active_only=True)
 
     if not services:
-        await callback.answer(⚠️ Нет доступных услуг для выбора", show_alert=True)
+        await callback.answer("⚠️ Нет доступных услуг для выбора", show_alert=True)
         return
 
     await state.update_data(service_edit_date=date_str, bookings_count=len(bookings))
