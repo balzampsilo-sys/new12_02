@@ -473,3 +473,33 @@ class BookingRepository(BaseRepository):
             params = ()
 
         return await BookingRepository._execute_query(query, params, fetch_all=True) or []
+
+    @staticmethod
+    async def mass_update_service(date_str: str, new_service_id: int) -> int:
+        """✅ НОВЫЙ МЕТОД: Массовое обновление услуги для всех записей на дату
+
+        Args:
+            date_str: Дата в формате YYYY-MM-DD
+            new_service_id: ID новой услуги
+
+        Returns:
+            Количество обновленных записей
+        """
+        try:
+            async with aiosqlite.connect(DATABASE_PATH) as db:
+                cursor = await db.execute(
+                    "UPDATE bookings SET service_id = ? WHERE date = ?",
+                    (new_service_id, date_str),
+                )
+                await db.commit()
+                updated_count = cursor.rowcount
+
+                logging.info(
+                    f"Mass service update: {updated_count} bookings on {date_str} "
+                    f"changed to service_id={new_service_id}"
+                )
+
+                return updated_count
+        except Exception as e:
+            logging.error(f"Error in mass_update_service for {date_str}: {e}")
+            return 0
