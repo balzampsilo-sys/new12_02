@@ -129,20 +129,23 @@ WORK_HOURS_END = int(os.getenv("WORK_HOURS_END", "18"))
 
 # === DATABASE ===
 # ✅ NEW: Database type selection
-DB_TYPE = os.getenv("DB_TYPE", "sqlite").lower()  # "postgresql" or "sqlite"
+DB_TYPE = os.getenv("DB_TYPE", "postgresql").lower()  # "postgresql" (recommended) or "sqlite"
 
 # SQLite configuration (legacy)
-DATABASE_PATH = os.getenv("DATABASE_PATH", "bookings.db")
+DATABASE_PATH = os.getenv("DATABASE_PATH", "data/bookings.db")
 
-# ✅ NEW: PostgreSQL configuration
+# ✅ PostgreSQL configuration
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://booking_user:password@localhost:5432/booking_db"
 )
 
+# ✅ NEW: PostgreSQL Schema for multi-tenant isolation
+PG_SCHEMA = os.getenv("PG_SCHEMA", "public")
+
 # ✅ NEW: Connection pool settings
-DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "5"))
-DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "20"))
+DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
+DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
 DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "30.0"))
 DB_COMMAND_TIMEOUT = float(os.getenv("DB_COMMAND_TIMEOUT", "60.0"))
 
@@ -155,8 +158,14 @@ DB_RETRY_BACKOFF = float(os.getenv("DB_RETRY_BACKOFF", "2.0"))
 REDIS_ENABLED = os.getenv("REDIS_ENABLED", "False").lower() in ("true", "1", "yes")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+# ✅ CHANGED: All clients use DB 0 (unlimited via key prefix)
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+
+# ✅ NEW: Client isolation via key prefix
+CLIENT_ID = os.getenv("CLIENT_ID", "default")
+REDIS_KEY_PREFIX = os.getenv("REDIS_KEY_PREFIX", f"{CLIENT_ID}:")
 
 # === SENTRY (Error Monitoring) ===
 SENTRY_ENABLED = os.getenv("SENTRY_ENABLED", "False").lower() in ("true", "1", "yes")
@@ -250,6 +259,18 @@ ROLE_PERMISSIONS = {
 
 # === LOGGING ===
 if DB_TYPE == "postgresql":
-    logger.info(f"✅ Database configured: PostgreSQL (pool: {DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE})")
+    logger.info(
+        f"✅ Database: PostgreSQL\n"
+        f"   • Pool: {DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE}\n"
+        f"   • Schema: {PG_SCHEMA}"
+    )
 else:
-    logger.info(f"⚠️ Database configured: SQLite (legacy mode) - {DATABASE_PATH}")
+    logger.info(f"⚠️ Database: SQLite (legacy) - {DATABASE_PATH}")
+
+if REDIS_ENABLED:
+    logger.info(
+        f"✅ Redis: {REDIS_HOST}:{REDIS_PORT}\n"
+        f"   • DB: {REDIS_DB}\n"
+        f"   • Client: {CLIENT_ID}\n"
+        f"   • Prefix: {REDIS_KEY_PREFIX}"
+    )
