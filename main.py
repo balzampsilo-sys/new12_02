@@ -175,21 +175,25 @@ async def init_database():
     """Инициализация БД с миграциями
     
     ✅ UPDATED: Инициализация db_adapter перед созданием таблиц
+    ✅ FIXED: Skip SQLite migrations for PostgreSQL
     """
     # ✅ CRITICAL: Инициализация connection pool
     await db_adapter.init_pool()
     
     await Database.init_db()
 
-    manager = MigrationManager(DATABASE_PATH)
-    manager.register(AddServicesBackwardCompatible)
-    manager.register(AddBookingHistory)  # P0: История изменений записей
-    manager.register(FixBookingHistoryConstraints)  # P0: Исправление CHECK constraint
-    manager.register(AddSlotInterval)  # P0: Добавление slot_interval_minutes
-    manager.register(V009TextTemplates)  # ✅ NEW: Таблица локализации (i18n)
-    await manager.migrate()
-
-    logger.info("Database initialized with migrations")
+    # ✅ FIXED: SQLite миграции только для SQLite БД
+    if DB_TYPE == "sqlite":
+        manager = MigrationManager(DATABASE_PATH)
+        manager.register(AddServicesBackwardCompatible)
+        manager.register(AddBookingHistory)  # P0: История изменений записей
+        manager.register(FixBookingHistoryConstraints)  # P0: Исправление CHECK constraint
+        manager.register(AddSlotInterval)  # P0: Добавление slot_interval_minutes
+        manager.register(V009TextTemplates)  # ✅ NEW: Таблица локализации (i18n)
+        await manager.migrate()
+        logger.info("SQLite database initialized with migrations")
+    else:
+        logger.info("PostgreSQL database initialized (schema auto-created by db_adapter)")
 
 
 def setup_backup_job(scheduler: AsyncIOScheduler, backup_service: BackupService):
@@ -510,7 +514,7 @@ async def start_bot():
     await booking_service.restore_reminders()
     scheduler.start()
 
-    logger.info("Bot started successfully")
+    logger.info("🤖 Bot started successfully")
     logger.info(
         f"Database: {DB_TYPE.upper()} | "
         "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
@@ -520,7 +524,8 @@ async def start_bot():
     logger.info(
         "✅ P0 Fixes Applied: Event Loop (asyncio.get_running_loop) + "
         "2h Reminders + Transaction Timeouts + Redis Leak + Migrations v008-v009 + "
-        "PostgreSQL Migration with Connection Pooling + PrefixedRedisStorage (Unlimited Clients)"
+        "PostgreSQL Migration with Connection Pooling + PrefixedRedisStorage (Unlimited Clients) + "
+        "Fixed SQLite migrations skip for PostgreSQL"
     )
     
     if SENTRY_ENABLED:
