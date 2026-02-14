@@ -4,7 +4,7 @@ Subscription Manager
 Управление клиентами, подписками и Redis DB
 
 Функции:
-- Автоматическое выделение Redis DB (0-15)
+- Автоматическое выделение Redis DB (0-127)
 - Отслеживание статуса подписок
 - История платежей
 - CRUD операции для клиентов
@@ -15,6 +15,9 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
+
+# Константы
+MAX_REDIS_DBS = 128  # Максимальное количество Redis баз
 
 
 class SubscriptionManager:
@@ -28,6 +31,7 @@ class SubscriptionManager:
             db_path: Путь к базе данных подписок
         """
         self.db_path = db_path
+        self.max_redis_dbs = MAX_REDIS_DBS
         self._init_db()
     
     def _init_db(self):
@@ -62,7 +66,7 @@ class SubscriptionManager:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 
                 CHECK (subscription_status IN ('trial', 'active', 'suspended', 'cancelled')),
-                CHECK (redis_db >= 0 AND redis_db <= 15),
+                CHECK (redis_db >= 0 AND redis_db <= 127),
                 CHECK (subscription_plan IN ('monthly', 'quarterly', 'yearly'))
             )
         """)
@@ -119,7 +123,7 @@ class SubscriptionManager:
     
     def _find_available_redis_db(self) -> Optional[int]:
         """
-        Найти первый свободный Redis DB номер (0-15)
+        Найти первый свободный Redis DB номер (0-127)
         
         Returns:
             Номер свободного DB или None если все заняты
@@ -132,8 +136,8 @@ class SubscriptionManager:
         used_dbs = {row[0] for row in cursor.fetchall()}
         conn.close()
         
-        # Найти первый свободный (0-15)
-        for db_num in range(16):
+        # Найти первый свободный (0-127)
+        for db_num in range(self.max_redis_dbs):
             if db_num not in used_dbs:
                 return db_num
         
@@ -167,7 +171,7 @@ class SubscriptionManager:
         redis_db = self._find_available_redis_db()
         
         if redis_db is None:
-            raise ValueError("No available Redis DB slots (max 16 clients)")
+            raise ValueError(f"No available Redis DB slots (max {self.max_redis_dbs} clients)")
         
         client_id = str(uuid.uuid4())
         container_name = f"bot-client-{client_id[:8]}"
@@ -353,6 +357,23 @@ class SubscriptionManager:
         conn.commit()
         conn.close()
     
+    def extend_subscription(self, client_id: str, days: int) -> bool:
+        """
+        Продлить подписку (алиас для reactivate_client)
+        
+        Args:
+            client_id: ID клиента
+            days: Количество дней
+        
+        Returns:
+            True если успешно
+        """
+        try:
+            self.reactivate_client(client_id, extend_days=days)
+            return True
+        except Exception:
+            return False
+    
     def add_payment(
         self,
         client_id: str,
@@ -384,9 +405,6 @@ class SubscriptionManager:
             )
             VALUES (?, ?, ?, ?, ?, ?)
         """, (client_id, amount, currency, payment_method, transaction_id, notes))
-        
-        # Продлить подписку (30 дней за платеж)
-        self.reactivate_client(client_id, extend_days=30)
         
         conn.commit()
         conn.close()
@@ -459,7 +477,7 @@ class SubscriptionManager:
         # Свободные Redis DB
         cursor.execute("SELECT COUNT(DISTINCT redis_db) FROM clients")
         used_redis_dbs = cursor.fetchone()[0]
-        available_redis_dbs = 16 - used_redis_dbs
+        available_redis_dbs = self.max_redis_dbs - used_redis_dbs
         
         # Доход за месяц
         cursor.execute("""
@@ -487,6 +505,7 @@ if __name__ == "__main__":
     manager = SubscriptionManager()
     
     print("📊 Subscription Manager Statistics:")
+    print(f"  Max Redis DBs: {manager.max_redis_dbs}")
     stats = manager.get_statistics()
     for key, value in stats.items():
         print(f"  {key}: {value}")
