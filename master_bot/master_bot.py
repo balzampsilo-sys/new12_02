@@ -4,7 +4,7 @@ Master Bot - Автоматический деплой клиентов чере
 
 Функции:
 - Прием заявок на новых клиентов
-- Автоматический деплойботов
+- Автоматический деплой ботов
 - Управление подписками
 - Интеграция с платежами
 - Статистика и мониторинг
@@ -14,7 +14,7 @@ import os
 import sys
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, types, F
@@ -74,7 +74,7 @@ class NewClientStates(StatesGroup):
 class PaymentStates(StatesGroup):
     """Состояния для обработки платежа"""
     waiting_for_client_search = State()
-    waiting_for_amount = State()
+    waiting_for_days = State()
     waiting_for_confirmation = State()
 
 
@@ -101,6 +101,18 @@ def confirm_keyboard():
     """Кнопки подтверждения"""
     keyboard = [
         [KeyboardButton(text="✅ Подтвердить")],
+        [KeyboardButton(text="🚫 Отмена")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def payment_periods_keyboard():
+    """Периоды оплаты"""
+    keyboard = [
+        [KeyboardButton(text="30 дней (1 месяц)")],
+        [KeyboardButton(text="90 дней (3 месяца)")],
+        [KeyboardButton(text="180 дней (6 месяцев)")],
+        [KeyboardButton(text="365 дней (1 год)")],
         [KeyboardButton(text="🚫 Отмена")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -162,7 +174,7 @@ async def cmd_help(message: types.Message):
 **Прием платежа:**
 1. Нажмите "💰 Принять платеж"
 2. Введите название компании для поиска
-3. Введите сумму платежа
+3. Выберите период продления
 4. Подтвердите
 
 **Статистика:**
@@ -462,6 +474,193 @@ async def process_confirmation(message: types.Message, state: FSMContext):
         )
 
 
+# === ПЛАТЕЖИ ===
+@dp.message(F.text == "💰 Принять платеж")
+async def start_payment(message: types.Message, state: FSMContext):
+    """Начало приема платежа"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    await state.set_state(PaymentStates.waiting_for_client_search)
+    await message.answer(
+        "💰 **ПРИЕМ ПЛАТЕЖА**\n\n"
+        "Введите название компании для поиска:\n"
+        "(можно ввести часть названия)",
+        reply_markup=cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+
+
+@dp.message(PaymentStates.waiting_for_client_search)
+async def process_client_search(message: types.Message, state: FSMContext):
+    """Обработка поиска клиента"""
+    if message.text == "🚫 Отмена":
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu_keyboard())
+        return
+    
+    search_query = message.text.strip().lower()
+    
+    # Поиск клиентов
+    all_clients = sub_manager.list_clients(limit=100)
+    found_clients = [
+        c for c in all_clients 
+        if search_query in (c.get('company_name') or '').lower()
+    ]
+    
+    if not found_clients:
+        await message.answer(
+            f"❌ Клиенты не найдены по запросу: `{search_query}`\n\n"
+            f"Попробуйте другое название:",
+            parse_mode="Markdown"
+        )
+        return
+    
+    if len(found_clients) > 1:
+        # Несколько клиентов найдено
+        client_list = "🔍 **Найдено несколько клиентов:**\n\n"
+        for i, client in enumerate(found_clients[:10], 1):
+            company = client['company_name'] or 'Без названия'
+            status_emoji = {'active': '✅', 'suspended': '⏸️'}.get(client['subscription_status'], '❓')
+            client_list += f"{i}. {status_emoji} {company}\n"
+        
+        client_list += "\nУточните название:"
+        await message.answer(client_list, parse_mode="Markdown")
+        return
+    
+    # Один клиент найден
+    client = found_clients[0]
+    await state.update_data(client_id=client['client_id'], company_name=client['company_name'])
+    
+    # Показать информацию о клиенте
+    expires = datetime.fromisoformat(client['subscription_expires_at'])
+    days_left = (expires - datetime.now()).days
+    
+    client_info = f"""
+✅ **Клиент найден**
+
+🏢 Компания: **{client['company_name']}**
+📅 Подписка до: **{expires.strftime('%Y-%m-%d')}** ({days_left} дней)
+💾 Redis DB: **{client['redis_db']}**
+📊 Статус: **{client['subscription_status']}**
+
+Выберите период продления:
+    """
+    
+    await state.set_state(PaymentStates.waiting_for_days)
+    await message.answer(
+        client_info,
+        reply_markup=payment_periods_keyboard(),
+        parse_mode="Markdown"
+    )
+
+
+@dp.message(PaymentStates.waiting_for_days)
+async def process_payment_days(message: types.Message, state: FSMContext):
+    """Обработка выбора периода"""
+    if message.text == "🚫 Отмена":
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu_keyboard())
+        return
+    
+    # Парсинг периода
+    days_map = {
+        "30 дней (1 месяц)": 30,
+        "90 дней (3 месяца)": 90,
+        "180 дней (6 месяцев)": 180,
+        "365 дней (1 год)": 365
+    }
+    
+    days = days_map.get(message.text)
+    if not days:
+        await message.answer(
+            "❌ Неверный выбор. Нажмите кнопку с периодом."
+        )
+        return
+    
+    await state.update_data(days=days)
+    data = await state.get_data()
+    
+    # Подтверждение
+    confirmation_text = f"""
+📋 **ПОДТВЕРЖДЕНИЕ ПЛАТЕЖА**
+
+🏢 Компания: **{data['company_name']}**
+📅 Период: **{days} дней**
+💰 Сумма: **{days * 50:.0f} ₽** (50₽/день)
+
+Подтвердить продление?
+    """
+    
+    await state.set_state(PaymentStates.waiting_for_confirmation)
+    await message.answer(
+        confirmation_text,
+        reply_markup=confirm_keyboard(),
+        parse_mode="Markdown"
+    )
+
+
+@dp.message(PaymentStates.waiting_for_confirmation)
+async def process_payment_confirmation(message: types.Message, state: FSMContext):
+    """Обработка подтверждения платежа"""
+    if message.text == "🚫 Отмена":
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu_keyboard())
+        return
+    
+    if message.text != "✅ Подтвердить":
+        await message.answer("Нажмите кнопку подтверждения")
+        return
+    
+    data = await state.get_data()
+    
+    try:
+        # Продлить подписку
+        result = sub_manager.extend_subscription(
+            client_id=data['client_id'],
+            days=data['days']
+        )
+        
+        if result:
+            amount = data['days'] * 50
+            success_text = f"""
+✅ **ПЛАТЕЖ ПРИНЯТ**
+
+🏢 Компания: **{data['company_name']}**
+📅 Продлено на: **{data['days']} дней**
+💰 Сумма: **{amount:.0f} ₽**
+
+✅ Подписка успешно продлена!
+            """
+            
+            await message.answer(
+                success_text,
+                parse_mode="Markdown"
+            )
+        else:
+            await message.answer(
+                "❌ **ОШИБКА**\n\n"
+                "Не удалось продлить подписку.\n"
+                "Проверьте логи.",
+                parse_mode="Markdown"
+            )
+    
+    except Exception as e:
+        logger.error(f"Payment error: {e}", exc_info=True)
+        await message.answer(
+            f"❌ **КРИТИЧЕСКАЯ ОШИБКА**\n\n"
+            f"Ошибка: {str(e)}",
+            parse_mode="Markdown"
+        )
+    
+    finally:
+        await state.clear()
+        await message.answer(
+            "Выберите действие:",
+            reply_markup=main_menu_keyboard()
+        )
+
+
 # === СТАТИСТИКА ===
 @dp.message(F.text == "📊 Статистика")
 async def show_statistics(message: types.Message):
@@ -480,22 +679,6 @@ async def show_clients(message: types.Message):
         return
     
     await cmd_clients(message)
-
-
-# === ПЛАТЕЖИ ===
-@dp.message(F.text == "💰 Принять платеж")
-async def start_payment(message: types.Message, state: FSMContext):
-    """Начало приема платежа"""
-    if not is_admin(message.from_user.id):
-        return
-    
-    await state.set_state(PaymentStates.waiting_for_client_search)
-    await message.answer(
-        "💰 **ПРИЕМ ПЛАТЕЖА**\n\n"
-        "Введите название компании для поиска:",
-        reply_markup=cancel_keyboard(),
-        parse_mode="Markdown"
-    )
 
 
 # === ПОМОЩЬ ===
