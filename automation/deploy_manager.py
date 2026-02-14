@@ -30,18 +30,31 @@ class DeploymentManager:
     def __init__(
         self,
         project_root: Optional[Path] = None,
-        subscription_db: str = "subscriptions.db"
+        database_url: Optional[str] = None,
+        pg_schema: str = "master_bot"
     ):
         """
         Инициализация deployment manager
         
         Args:
             project_root: Корневая директория проекта
-            subscription_db: Путь к БД подписок
+            database_url: PostgreSQL connection string (если None - берется из ENV)
+            pg_schema: PostgreSQL schema (по умолчанию master_bot)
         """
         self.project_root = project_root or Path.cwd()
         self.clients_dir = self.project_root / "clients"
-        self.sub_manager = SubscriptionManager(subscription_db)
+        
+        # ✅ PostgreSQL из ENV или параметра
+        if database_url is None:
+            database_url = os.getenv(
+                "DATABASE_URL",
+                "postgresql://booking_user:SecurePass2026!@localhost:5432/booking_saas"
+            )
+        
+        self.sub_manager = SubscriptionManager(
+            database_url=database_url,
+            schema=pg_schema
+        )
         
         # Создать clients/ если не существует
         self.clients_dir.mkdir(exist_ok=True)
@@ -99,7 +112,7 @@ class DeploymentManager:
         (client_dir / "locales").mkdir(exist_ok=True)
         
         # 3. Копирование файлов бота
-        print("📝 Копирование файлов бота...")
+        print("📋 Копирование файлов бота...")
         files_to_copy = [
             "handlers", "database", "services", "middlewares",
             "utils", "keyboards", "main.py", "config.py",
