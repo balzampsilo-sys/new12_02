@@ -23,7 +23,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from aiogram.utils.markdown import escape_md
 
 # Загрузить переменные окружения из .env
 from dotenv import load_dotenv
@@ -158,7 +157,7 @@ async def cmd_start(message: types.Message):
     
     await message.answer(
         f"👋 Привет, {message.from_user.first_name}!\n\n"
-        "🤖 **Мастер-бот для управления клиентами**\n\n"
+        "🤖 МАСТЕР-БОТ ДЛЯ УПРАВЛЕНИЯ КЛИЕНТАМИ\n\n"
         "Что я умею:\n"
         "➕ Автоматически деплоить новых клиентов\n"
         "💰 Принимать платежи и продлевать подписки\n"
@@ -167,8 +166,7 @@ async def cmd_start(message: types.Message):
         f"🔄 Очередь деплоя: {queue_status}\n"
         f"📋 Задач в очереди: {queue_length}\n\n"
         "Выберите действие:",
-        reply_markup=main_menu_keyboard(),
-        parse_mode="Markdown"
+        reply_markup=main_menu_keyboard()
     )
 
 
@@ -178,41 +176,41 @@ async def cmd_help(message: types.Message):
         return
     
     help_text = """
-📚 **ПОМОЩЬ**
+📚 ПОМОЩЬ
 
-**Основные команды:**
-/start \- Главное меню
-/stats \- Статистика
-/clients \- Список всех клиентов
-/queue \- Статус очереди деплоя
-/dbpath \- Показать путь к базе данных
-/help \- Эта справка
+Основные команды:
+/start - Главное меню
+/stats - Статистика
+/clients - Список всех клиентов
+/queue - Статус очереди деплоя
+/dbpath - Показать путь к базе данных
+/help - Эта справка
 
-**Добавление клиента:**
-1\. Нажмите "➕ Добавить клиента"
-2\. Отправьте токен бота \(от @BotFather\)
-3\. Отправьте Telegram ID клиента \(от @userinfobot\)
-4\. Введите название компании
-5\. Подтвердите \- задача добавится в очередь
-6\. Deploy Worker автоматически выполнит деплой
-7\. Вы получите уведомление о результате
+Добавление клиента:
+1. Нажмите "➕ Добавить клиента"
+2. Отправьте токен бота (от @BotFather)
+3. Отправьте Telegram ID клиента (от @userinfobot)
+4. Введите название компании
+5. Подтвердите - задача добавится в очередь
+6. Deploy Worker автоматически выполнит деплой
+7. Вы получите уведомление о результате
 
-**Прием платежа:**
-1\. Нажмите "💰 Принять платеж"
-2\. Введите название компании для поиска
-3\. Выберите период продления
-4\. Введите сумму платежа \(или используйте рекомендуемую\)
-5\. Подтвердите
+Прием платежа:
+1. Нажмите "💰 Принять платеж"
+2. Введите название компании для поиска
+3. Выберите период продления
+4. Введите сумму платежа (или используйте рекомендуемую)
+5. Подтвердите
 
-**Архитектура:**
-• Master Bot \(Docker\) \- управление
-• Redis Queue \- очередь задач
-• Deploy Worker \(HOST\) \- деплой клиентов
+Архитектура:
+• Master Bot (Docker) - управление
+• Redis Queue - очередь задач
+• Deploy Worker (HOST) - деплой клиентов
 
-**Поддержка:** 
-https://github\.com/balzampsilo\-sys/new12\_02/blob/main/QUEUE\_SETUP\.md
+Поддержка: 
+https://github.com/balzampsilo-sys/new12_02/blob/main/QUEUE_SETUP.md
     """
-    await message.answer(help_text, parse_mode="MarkdownV2")
+    await message.answer(help_text)
 
 
 @dp.message(Command("queue"))
@@ -223,22 +221,17 @@ async def cmd_queue(message: types.Message):
     
     if not deploy_queue.is_available():
         await message.answer(
-            "❌ **ОЧЕРЕДЬ НЕДОСТУПНА**\n\n"
+            "❌ ОЧЕРЕДЬ НЕДОСТУПНА\n\n"
             "Redis не подключен.\n"
-            "Проверьте что Redis запущен: `docker-compose ps redis`",
-            parse_mode="Markdown"
+            "Проверьте что Redis запущен: docker-compose ps redis"
         )
         return
     
     queue_length = deploy_queue.get_queue_length()
     
-    status_text = f"""
-🔄 **СТАТУС ОЧЕРЕДИ ДЕПЛОЯ**
-
-✅ Очередь активна
-📋 Задач в очереди: **{queue_length}**
-
-"""
+    status_text = f"🔄 СТАТУС ОЧЕРЕДИ ДЕПЛОЯ\n\n"
+    status_text += f"✅ Очередь активна\n"
+    status_text += f"📋 Задач в очереди: {queue_length}\n\n"
     
     if queue_length > 0:
         status_text += f"⚡ Deploy Worker обработает их в порядке поступления.\n"
@@ -247,7 +240,7 @@ async def cmd_queue(message: types.Message):
     
     status_text += f"\n🔧 Redis: {deploy_queue.redis_host}:{deploy_queue.redis_port}/{deploy_queue.redis_db}"
     
-    await message.answer(status_text, parse_mode="Markdown")
+    await message.answer(status_text)
 
 
 @dp.message(Command("dbpath"))
@@ -259,17 +252,13 @@ async def cmd_dbpath(message: types.Message):
     db_exists = Path(DB_PATH).exists()
     db_size = Path(DB_PATH).stat().st_size if db_exists else 0
     
-    info = f"""
-🔍 **ИНФОРМАЦИЯ О БАЗЕ ДАННЫХ**
-
-📂 Путь: `{DB_PATH}`
-{'✅' if db_exists else '❌'} Существует: **{'Да' if db_exists else 'Нет'}**
-📦 Размер: **{db_size} bytes**
-
-📂 Project root: `{PROJECT_ROOT}`
-    """
+    info = f"🔍 ИНФОРМАЦИЯ О БАЗЕ ДАННЫХ\n\n"
+    info += f"📂 Путь: {DB_PATH}\n"
+    info += f"{'✅' if db_exists else '❌'} Существует: {'Да' if db_exists else 'Нет'}\n"
+    info += f"📦 Размер: {db_size} bytes\n\n"
+    info += f"📂 Project root: {PROJECT_ROOT}"
     
-    await message.answer(info, parse_mode="Markdown")
+    await message.answer(info)
 
 
 @dp.message(Command("stats"))
@@ -279,22 +268,17 @@ async def cmd_stats(message: types.Message):
     
     stats = sub_manager.get_statistics()
     
-    stats_text = f"""
-📊 **СТАТИСТИКА**
-
-👥 Всего клиентов: **{stats['total_clients']}**
-✅ Активных: **{stats['active_clients']}**
-⏸️ Приостановлено: **{stats['suspended_clients']}**
-🆓 Триал: **{stats.get('trial_clients', 0)}**
-
-💾 Redis DB:
-   • Занято: **{16 - stats['available_redis_dbs']}**
-   • Свободно: **{stats['available_redis_dbs']}**
-
-💰 Доход за месяц: **{stats['monthly_revenue']:.2f} ₽**
-    """
+    stats_text = f"📊 СТАТИСТИКА\n\n"
+    stats_text += f"👥 Всего клиентов: {stats['total_clients']}\n"
+    stats_text += f"✅ Активных: {stats['active_clients']}\n"
+    stats_text += f"⏸️ Приостановлено: {stats['suspended_clients']}\n"
+    stats_text += f"🆓 Триал: {stats.get('trial_clients', 0)}\n\n"
+    stats_text += f"💾 Redis DB:\n"
+    stats_text += f"   • Занято: {16 - stats['available_redis_dbs']}\n"
+    stats_text += f"   • Свободно: {stats['available_redis_dbs']}\n\n"
+    stats_text += f"💰 Доход за месяц: {stats['monthly_revenue']:.2f} ₽"
     
-    await message.answer(stats_text, parse_mode="Markdown")
+    await message.answer(stats_text)
 
 
 @dp.message(Command("clients"))
@@ -308,7 +292,7 @@ async def cmd_clients(message: types.Message):
         await message.answer("📭 Клиентов пока нет")
         return
     
-    client_list = "👥 **СПИСОК КЛИЕНТОВ**\n\n"
+    client_list = "👥 СПИСОК КЛИЕНТОВ\n\n"
     
     for client in clients:
         status_emoji = {
@@ -322,10 +306,10 @@ async def cmd_clients(message: types.Message):
         redis_db = client['redis_db']
         expires = client['subscription_expires_at'][:10]
         
-        client_list += f"{status_emoji} **{company}**\n"
+        client_list += f"{status_emoji} {company}\n"
         client_list += f"   Redis DB: {redis_db} | До: {expires}\n\n"
     
-    await message.answer(client_list, parse_mode="Markdown")
+    await message.answer(client_list)
 
 
 # === ДОБАВЛЕНИЕ КЛИЕНТА ===
@@ -337,26 +321,24 @@ async def start_add_client(message: types.Message, state: FSMContext):
     # Проверить доступность очереди
     if not deploy_queue.is_available():
         await message.answer(
-            "❌ **ОЧЕРЕДЬ ДЕПЛОЯ НЕДОСТУПНА**\n\n"
+            "❌ ОЧЕРЕДЬ ДЕПЛОЯ НЕДОСТУПНА\n\n"
             "Redis не подключен. Деплой временно невозможен.\n\n"
             "Обратитесь к администратору.\n\n"
-            "Проверка: `docker-compose ps redis`",
-            parse_mode="Markdown",
+            "Проверка: docker-compose ps redis",
             reply_markup=main_menu_keyboard()
         )
         return
     
     await state.set_state(NewClientStates.waiting_for_token)
     await message.answer(
-        "🤖 **НОВЫЙ КЛИЕНТ**\n\n"
-        "Шаг 1/3: Отправьте **токен бота**\n\n"
+        "🤖 НОВЫЙ КЛИЕНТ\n\n"
+        "Шаг 1/3: Отправьте токен бота\n\n"
         "Как получить:\n"
         "1. Клиент пишет @BotFather\n"
         "2. Отправляет /newbot\n"
-        "3. Получает токен вида: `123456:ABC...`\n\n"
+        "3. Получает токен вида: 123456:ABC...\n\n"
         "Отправьте токен:",
-        reply_markup=cancel_keyboard(),
-        parse_mode="Markdown"
+        reply_markup=cancel_keyboard()
     )
 
 
@@ -372,9 +354,8 @@ async def process_token(message: types.Message, state: FSMContext):
     if ":" not in token or len(token) < 20:
         await message.answer(
             "❌ Неверный формат токена\n\n"
-            "Токен должен быть вида: `123456789:ABCdefGHI...`\n\n"
-            "Попробуйте еще раз:",
-            parse_mode="Markdown"
+            "Токен должен быть вида: 123456789:ABCdefGHI...\n\n"
+            "Попробуйте еще раз:"
         )
         return
     
@@ -382,13 +363,12 @@ async def process_token(message: types.Message, state: FSMContext):
     await state.set_state(NewClientStates.waiting_for_admin_id)
     await message.answer(
         "✅ Токен принят\n\n"
-        "Шаг 2/3: Отправьте **Telegram ID клиента**\n\n"
+        "Шаг 2/3: Отправьте Telegram ID клиента\n\n"
         "Как получить:\n"
         "1. Клиент пишет @userinfobot\n"
         "2. Отправляет /start\n"
         "3. Получает ID (число вида: 987654321)\n\n"
-        "Отправьте ID:",
-        parse_mode="Markdown"
+        "Отправьте ID:"
     )
 
 
@@ -413,10 +393,9 @@ async def process_admin_id(message: types.Message, state: FSMContext):
     await state.set_state(NewClientStates.waiting_for_company_name)
     await message.answer(
         "✅ ID принят\n\n"
-        "Шаг 3/3: Введите **название компании**\n\n"
+        "Шаг 3/3: Введите название компании\n\n"
         "Например: Салон красоты Анны\n\n"
-        "Введите название:",
-        parse_mode="Markdown"
+        "Введите название:"
     )
 
 
@@ -431,29 +410,22 @@ async def process_company_name(message: types.Message, state: FSMContext):
     await state.update_data(company_name=company_name)
     data = await state.get_data()
     
-    # Экранировать спецсимволы Markdown
-    safe_company = escape_md(data['company_name'])
-    safe_token = escape_md(data['bot_token'][:20] + "...")
-    safe_admin_id = escape_md(str(data['admin_telegram_id']))
-    
-    confirmation_text = f"""
-📋 **ПОДТВЕРЖДЕНИЕ**
+    # БЕЗ MARKDOWN - просто текст
+    confirmation_text = f"""📋 ПОДТВЕРЖДЕНИЕ
 
-🏢 Компания: **{safe_company}**
-🤖 Токен: `{safe_token}`
-👤 Admin ID: `{safe_admin_id}`
+🏢 Компания: {data['company_name']}
+🤖 Токен: {data['bot_token'][:20]}...
+👤 Admin ID: {data['admin_telegram_id']}
 
-⚡ После подтверждения задача будет добавлена в очередь деплоя\!
-🤖 Deploy Worker автоматически выполнит развёртывание\.
+⚡ После подтверждения задача будет добавлена в очередь деплоя!
+🤖 Deploy Worker автоматически выполнит развёртывание.
 
-Продолжить?
-    """
+Продолжить?"""
     
     await state.set_state(NewClientStates.waiting_for_confirmation)
     await message.answer(
         confirmation_text,
-        reply_markup=confirm_keyboard(),
-        parse_mode="MarkdownV2"
+        reply_markup=confirm_keyboard()
     )
 
 
@@ -499,26 +471,19 @@ async def process_confirmation(message: types.Message, state: FSMContext):
         # Уведомить о постановке в очередь
         queue_length = deploy_queue.get_queue_length()
         
-        # Экранировать для MarkdownV2
-        safe_company = escape_md(data['company_name'])
-        safe_task_id = escape_md(task_id)
-        
-        success_text = f"""
-✅ **ЗАДАЧА ДОБАВЛЕНА В ОЧЕРЕДЬ**
+        success_text = f"""✅ ЗАДАЧА ДОБАВЛЕНА В ОЧЕРЕДЬ
 
-🏢 Компания: **{safe_company}**
-🆔 Task ID: `{safe_task_id}`
-📋 Позиция в очереди: **{queue_length}**
+🏢 Компания: {data['company_name']}
+🆔 Task ID: {task_id}
+📋 Позиция в очереди: {queue_length}
 
-⏳ Деплой начнётся в течение 1\-2 минут\.
-🔔 Вы получите уведомление о результате\.
+⏳ Деплой начнётся в течение 1-2 минут.
+🔔 Вы получите уведомление о результате.
 
-💡 Проверить статус: /queue
-        """
+💡 Проверить статус: /queue"""
         
         await message.answer(
             success_text,
-            parse_mode="MarkdownV2",
             reply_markup=main_menu_keyboard()
         )
         
@@ -527,8 +492,7 @@ async def process_confirmation(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Error adding task to queue: {e}", exc_info=True)
         await message.answer(
-            f"❌ КРИТИЧЕСКАЯ ОШИБКА\n\n"
-            f"Обратитесь к техподдержке",
+            "❌ КРИТИЧЕСКАЯ ОШИБКА\n\nОбратитесь к техподдержке",
             reply_markup=main_menu_keyboard()
         )
     
@@ -536,7 +500,7 @@ async def process_confirmation(message: types.Message, state: FSMContext):
         await state.clear()
 
 
-# === ПЛАТЕЖИ (сокращено для места) ===
+# === ПЛАТЕЖИ ===
 @dp.message(F.text == "💰 Принять платеж")
 async def start_payment(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
@@ -544,11 +508,10 @@ async def start_payment(message: types.Message, state: FSMContext):
     
     await state.set_state(PaymentStates.waiting_for_client_search)
     await message.answer(
-        "💰 **ПРИЕМ ПЛАТЕЖА**\n\n"
+        "💰 ПРИЕМ ПЛАТЕЖА\n\n"
         "Введите название компании для поиска:\n"
         "(можно ввести часть названия)",
-        reply_markup=cancel_keyboard(),
-        parse_mode="Markdown"
+        reply_markup=cancel_keyboard()
     )
 
 
@@ -568,21 +531,20 @@ async def process_client_search(message: types.Message, state: FSMContext):
     
     if not found_clients:
         await message.answer(
-            f"❌ Клиенты не найдены по запросу: `{search_query}`\n\n"
-            f"Попробуйте другое название:",
-            parse_mode="Markdown"
+            f"❌ Клиенты не найдены по запросу: {search_query}\n\n"
+            f"Попробуйте другое название:"
         )
         return
     
     if len(found_clients) > 1:
-        client_list = "🔍 **Найдено несколько клиентов:**\n\n"
+        client_list = "🔍 Найдено несколько клиентов:\n\n"
         for i, client in enumerate(found_clients[:10], 1):
             company = client['company_name'] or 'Без названия'
             status_emoji = {'active': '✅', 'suspended': '⏸️'}.get(client['subscription_status'], '❓')
             client_list += f"{i}. {status_emoji} {company}\n"
         
         client_list += "\nУточните название:"
-        await message.answer(client_list, parse_mode="Markdown")
+        await message.answer(client_list)
         return
     
     client = found_clients[0]
@@ -591,22 +553,19 @@ async def process_client_search(message: types.Message, state: FSMContext):
     expires = datetime.fromisoformat(client['subscription_expires_at'])
     days_left = (expires - datetime.now()).days
     
-    client_info = f"""
-✅ **Клиент найден**
+    client_info = f"""✅ Клиент найден
 
-🏢 Компания: **{client['company_name']}**
-📅 Подписка до: **{expires.strftime('%Y-%m-%d')}** ({days_left} дней)
-💾 Redis DB: **{client['redis_db']}**
-📊 Статус: **{client['subscription_status']}**
+🏢 Компания: {client['company_name']}
+📅 Подписка до: {expires.strftime('%Y-%m-%d')} ({days_left} дней)
+💾 Redis DB: {client['redis_db']}
+📊 Статус: {client['subscription_status']}
 
-Выберите период продления:
-    """
+Выберите период продления:"""
     
     await state.set_state(PaymentStates.waiting_for_days)
     await message.answer(
         client_info,
-        reply_markup=payment_periods_keyboard(),
-        parse_mode="Markdown"
+        reply_markup=payment_periods_keyboard()
     )
 
 
@@ -636,21 +595,18 @@ async def process_payment_days(message: types.Message, state: FSMContext):
     # Рекомендуемая сумма: 10₽/день (300₽ за месяц)
     recommended_amount = days * 10
     
-    amount_text = f"""
-💰 **ВВОД СУММЫ**
+    amount_text = f"""💰 ВВОД СУММЫ
 
-📅 Период: **{days} дней**
-💡 Рекомендуемая сумма: **{recommended_amount} ₽** (10₽/день)
+📅 Период: {days} дней
+💡 Рекомендуемая сумма: {recommended_amount} ₽ (10₽/день)
 
 Введите сумму платежа в рублях:
-(или нажмите кнопку для рекомендуемой суммы)
-    """
+(или нажмите кнопку для рекомендуемой суммы)"""
     
     await state.set_state(PaymentStates.waiting_for_amount)
     await message.answer(
         amount_text,
-        reply_markup=amount_keyboard(recommended_amount),
-        parse_mode="Markdown"
+        reply_markup=amount_keyboard(recommended_amount)
     )
 
 
@@ -691,21 +647,18 @@ async def process_payment_amount(message: types.Message, state: FSMContext):
     await state.update_data(amount=amount)
     data = await state.get_data()
     
-    confirmation_text = f"""
-📋 **ПОДТВЕРЖДЕНИЕ ПЛАТЕЖА**
+    confirmation_text = f"""📋 ПОДТВЕРЖДЕНИЕ ПЛАТЕЖА
 
-🏢 Компания: **{data['company_name']}**
-📅 Период: **{data['days']} дней**
-💰 Сумма: **{amount} ₽**
+🏢 Компания: {data['company_name']}
+📅 Период: {data['days']} дней
+💰 Сумма: {amount} ₽
 
-Подтвердить продление?
-    """
+Подтвердить продление?"""
     
     await state.set_state(PaymentStates.waiting_for_confirmation)
     await message.answer(
         confirmation_text,
-        reply_markup=confirm_keyboard(),
-        parse_mode="Markdown"
+        reply_markup=confirm_keyboard()
     )
 
 
@@ -733,34 +686,25 @@ async def process_payment_confirmation(message: types.Message, state: FSMContext
         )
         
         # Дополнительно продлить на указанный период
-        # (add_payment уже продлевает на 30 дней по умолчанию)
         if data['days'] != 30:
             sub_manager.reactivate_client(
                 client_id=data['client_id'],
                 extend_days=data['days'] - 30
             )
         
-        success_text = f"""
-✅ **ПЛАТЕЖ ПРИНЯТ**
+        success_text = f"""✅ ПЛАТЕЖ ПРИНЯТ
 
-🏢 Компания: **{data['company_name']}**
-📅 Продлено на: **{data['days']} дней**
-💰 Сумма: **{data['amount']} ₽**
+🏢 Компания: {data['company_name']}
+📅 Продлено на: {data['days']} дней
+💰 Сумма: {data['amount']} ₽
 
-✅ Подписка успешно продлена!
-        """
+✅ Подписка успешно продлена!"""
         
-        await message.answer(
-            success_text,
-            parse_mode="Markdown"
-        )
+        await message.answer(success_text)
     
     except Exception as e:
         logger.error(f"Payment error: {e}", exc_info=True)
-        await message.answer(
-            f"❌ КРИТИЧЕСКАЯ ОШИБКА\n\n"
-            f"Обратитесь к техподдержке",
-        )
+        await message.answer("❌ КРИТИЧЕСКАЯ ОШИБКА\n\nОбратитесь к техподдержке")
     
     finally:
         await state.clear()
