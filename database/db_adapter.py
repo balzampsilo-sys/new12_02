@@ -1,7 +1,9 @@
-"""Database adapter для поддержки PostgreSQL и SQLite
+"""Адаптер базы данных для поддержки PostgreSQL и SQLite
 
 Предоставляет unified interface для работы с разными типами БД.
 Автоматически определяет тип БД из конфигурации.
+
+✅ FIX: Добавлена поддержка search_path для multi-tenant изоляции
 
 Examples:
     >>> # Инициализация
@@ -35,12 +37,15 @@ class DatabaseAdapter:
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
         self.db_type = None
+        self.schema = None  # ✅ NEW: Store schema name
         self._initialized = False
 
     async def init_pool(self) -> None:
         """Инициализация connection pool
 
         Reads config from imported module to avoid circular imports.
+        
+        ✅ FIX: Добавлена поддержка search_path для multi-tenant изоляции
         """
         if self._initialized:
             logger.warning("DatabaseAdapter already initialized")
@@ -54,9 +59,11 @@ class DatabaseAdapter:
             DB_POOL_MIN_SIZE,
             DB_POOL_TIMEOUT,
             DB_TYPE,
+            PG_SCHEMA,
         )
 
         self.db_type = DB_TYPE
+        self.schema = PG_SCHEMA  # ✅ NEW: Store schema
 
         if self.db_type == "postgresql":
             try:
@@ -66,15 +73,17 @@ class DatabaseAdapter:
                     max_size=DB_POOL_MAX_SIZE,
                     timeout=DB_POOL_TIMEOUT,
                     command_timeout=DB_COMMAND_TIMEOUT,
-                    # Production-ready опции
+                    # ✅ FIX: Установка search_path для изоляции клиентов
                     server_settings={
+                        "search_path": PG_SCHEMA,  # ✅ CRITICAL: Multi-tenant isolation
                         "application_name": "booking_bot",
                         "jit": "off",  # Отключить JIT для предсказуемости
                     },
                 )
                 logger.info(
                     f"✅ PostgreSQL pool created: "
-                    f"{DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE} connections"
+                    f"{DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE} connections\n"
+                    f"   • Schema: {PG_SCHEMA} (search_path set)"
                 )
                 self._initialized = True
             except Exception as e:
@@ -103,7 +112,7 @@ class DatabaseAdapter:
 
         if self.db_type == "postgresql":
             async with self.pool.acquire() as conn:
-                yield PostgreSQLConnection(conn)
+                yield PostgreSQLConnection(conn, self.schema)
         else:
             # Legacy SQLite fallback
             import aiosqlite
@@ -180,10 +189,14 @@ class DatabaseAdapter:
 
 
 class PostgreSQLConnection:
-    """Wrapper для asyncpg connection"""
+    """Wrapper для asyncpg connection
+    
+    ✅ FIX: Добавлен schema awareness
+    """
 
-    def __init__(self, conn: asyncpg.Connection):
+    def __init__(self, conn: asyncpg.Connection, schema: str):
         self.conn = conn
+        self.schema = schema  # ✅ NEW: Store schema
 
     async def execute(
         self, query: str, *args, timeout: Optional[float] = None
