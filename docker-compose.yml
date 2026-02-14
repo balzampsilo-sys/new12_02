@@ -79,6 +79,14 @@ services:
       REDIS_DB: 0
       REDIS_KEY_PREFIX: "master_bot:"  # ✅ Уникальный prefix
       
+      # Business Logic
+      TIMEZONE: ${TIMEZONE:-Europe/Moscow}
+      WORK_HOURS_START: ${WORK_HOURS_START:-9}
+      WORK_HOURS_END: ${WORK_HOURS_END:-21}
+      SLOT_INTERVAL_MINUTES: ${SLOT_INTERVAL_MINUTES:-60}
+      MAX_BOOKINGS_PER_USER: ${MAX_BOOKINGS_PER_USER:-3}
+      CANCELLATION_HOURS: ${CANCELLATION_HOURS:-24}
+      
       # Sentry (optional)
       SENTRY_ENABLED: ${SENTRY_ENABLED:-false}
       SENTRY_DSN: ${SENTRY_DSN_MASTER:-}
@@ -111,7 +119,7 @@ services:
     environment:
       # Bot Configuration
       BOT_TOKEN: ${BOT_TOKEN_SALES}
-      ADMIN_IDS: ${ADMIN_IDS_SALES}
+      ADMIN_IDS: ${ADMIN_IDS_SALES}  # ✅ ID администраторов салес бота
       
       # ✅ Multi-tenant: уникальный CLIENT_ID
       CLIENT_ID: sales_bot
@@ -127,6 +135,14 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: 0
       REDIS_KEY_PREFIX: "sales_bot:"  # ✅ Уникальный prefix
+      
+      # Business Logic (можно указать другие значения)
+      TIMEZONE: ${TIMEZONE:-Europe/Moscow}
+      WORK_HOURS_START: ${WORK_HOURS_START_SALES:-9}
+      WORK_HOURS_END: ${WORK_HOURS_END_SALES:-21}
+      SLOT_INTERVAL_MINUTES: ${SLOT_INTERVAL_MINUTES_SALES:-60}
+      MAX_BOOKINGS_PER_USER: ${MAX_BOOKINGS_PER_USER_SALES:-3}
+      CANCELLATION_HOURS: ${CANCELLATION_HOURS_SALES:-24}
       
       # Sentry (optional)
       SENTRY_ENABLED: ${SENTRY_ENABLED:-false}
