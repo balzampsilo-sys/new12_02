@@ -1,96 +1,28 @@
 version: '3.8'
 
-# ========================================
-# BOT INSTANCE (CLIENT)
-# ========================================
-# This file deploys a SINGLE bot instance for ONE client
-# 
-# PREREQUISITES:
-#   1. Start shared Redis first:
-#      docker-compose -f docker-compose.redis.yml up -d
-#
-#   2. Configure .env file:
-#      BOT_TOKEN=your_token
-#      ADMIN_IDS=your_telegram_id
-#      REDIS_DB=0  (unique for each client: 0-15)
-#
-# ========================================
-
 services:
-  bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    
-    # ⚠️ IMPORTANT: Change container name for each client!
-    container_name: booking-bot-client
-    
-    restart: unless-stopped
-    
-    environment:
-      # Bot Configuration (from .env)
-      - BOT_TOKEN=${BOT_TOKEN}
-      - ADMIN_IDS=${ADMIN_IDS}
-      
-      # Redis Connection (SHARED)
-      - REDIS_ENABLED=True
-      - REDIS_HOST=redis-shared  # ✅ Connects to shared Redis
-      - REDIS_PORT=6379
-      - REDIS_DB=${REDIS_DB:-0}  # ⚠️ MUST BE UNIQUE per client (0-15)
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      
-      # Sentry (optional)
-      - SENTRY_ENABLED=${SENTRY_ENABLED:-False}
-      - SENTRY_DSN=${SENTRY_DSN:-}
-      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}
-      
-      # Database
-      - DATABASE_PATH=/app/data/bookings.db
-      - BACKUP_ENABLED=True
-      - BACKUP_DIR=/app/backups
-      - BACKUP_INTERVAL_HOURS=${BACKUP_INTERVAL_HOURS:-24}
-      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
-      
-      # Work Schedule
-      - WORK_HOURS_START=${WORK_HOURS_START:-9}
-      - WORK_HOURS_END=${WORK_HOURS_END:-18}
-      
-      # Booking Settings
-      - MAX_BOOKINGS_PER_USER=${MAX_BOOKINGS_PER_USER:-3}
-      - CANCELLATION_HOURS=${CANCELLATION_HOURS:-24}
-      
-      # Other
-      - TZ=Europe/Moscow
-    
-    # Persistent data
+  redis:
+    image: redis:7-alpine
+    container_name: shared-redis
+    command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
-      - ./data:/app/data
-      - ./backups:/app/backups
-      - ./logs:/app/logs
-      - ./locales:/app/locales  # i18n YAML hot-reload
-    
-    # Connect to shared network
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
     networks:
       - bot-network
-    
-    # Logging
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    
-    # Resource limits (optional)
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-# Use external network created by docker-compose.redis.yml
+volumes:
+  redis_data:
+    driver: local
+
 networks:
   bot-network:
-    external: true
+    driver: bridge
