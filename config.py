@@ -128,22 +128,23 @@ WORK_HOURS_START = int(os.getenv("WORK_HOURS_START", "9"))
 WORK_HOURS_END = int(os.getenv("WORK_HOURS_END", "18"))
 
 # === DATABASE ===
-# ✅ NEW: Database type selection
-DB_TYPE = os.getenv("DB_TYPE", "postgresql").lower()  # "postgresql" (recommended) or "sqlite"
+# ✅ CHANGED: PostgreSQL by default (recommended for production)
+DB_TYPE = os.getenv("DB_TYPE", "postgresql").lower()  # "postgresql" (default) or "sqlite" (legacy)
 
-# SQLite configuration (legacy)
+# SQLite configuration (legacy fallback)
 DATABASE_PATH = os.getenv("DATABASE_PATH", "data/bookings.db")
 
-# ✅ PostgreSQL configuration
+# ✅ PostgreSQL configuration (RECOMMENDED)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://booking_user:password@localhost:5432/booking_db"
+    "postgresql://booking_user:SecurePass2026!@postgres:5432/booking_saas"
 )
 
 # ✅ NEW: PostgreSQL Schema for multi-tenant isolation
+# Each client gets their own schema (e.g., client_001, client_002)
 PG_SCHEMA = os.getenv("PG_SCHEMA", "public")
 
-# ✅ NEW: Connection pool settings
+# ✅ Connection pool settings (optimized for multiple clients)
 DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
 DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
 DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "30.0"))
@@ -155,15 +156,17 @@ DB_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "0.5"))
 DB_RETRY_BACKOFF = float(os.getenv("DB_RETRY_BACKOFF", "2.0"))
 
 # === REDIS (FSM Storage) ===
-REDIS_ENABLED = os.getenv("REDIS_ENABLED", "False").lower() in ("true", "1", "yes")
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_ENABLED = os.getenv("REDIS_ENABLED", "True").lower() in ("true", "1", "yes")
+REDIS_HOST = os.getenv("REDIS_HOST", "redis-shared")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
-# ✅ CHANGED: All clients use DB 0 (unlimited via key prefix)
+# ✅ CHANGED: All clients use DB 0 (unlimited clients via key prefix)
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 
 # ✅ NEW: Client isolation via key prefix
+# Instead of using different DB numbers (0-15 limit),
+# we use unique prefixes for unlimited scalability
 CLIENT_ID = os.getenv("CLIENT_ID", "default")
 REDIS_KEY_PREFIX = os.getenv("REDIS_KEY_PREFIX", f"{CLIENT_ID}:")
 
@@ -262,15 +265,18 @@ if DB_TYPE == "postgresql":
     logger.info(
         f"✅ Database: PostgreSQL\n"
         f"   • Pool: {DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE}\n"
-        f"   • Schema: {PG_SCHEMA}"
+        f"   • Schema: {PG_SCHEMA} (multi-tenant isolation)"
     )
 else:
-    logger.info(f"⚠️ Database: SQLite (legacy) - {DATABASE_PATH}")
+    logger.warning(f"⚠️ Database: SQLite (legacy) - {DATABASE_PATH}")
+    logger.warning("⚠️ Consider using PostgreSQL for production (better scalability)")
 
 if REDIS_ENABLED:
     logger.info(
         f"✅ Redis: {REDIS_HOST}:{REDIS_PORT}\n"
         f"   • DB: {REDIS_DB}\n"
         f"   • Client: {CLIENT_ID}\n"
-        f"   • Prefix: {REDIS_KEY_PREFIX}"
+        f"   • Key Prefix: {REDIS_KEY_PREFIX} (unlimited clients)"
     )
+else:
+    logger.warning("⚠️ Redis disabled - using MemoryStorage (not recommended for production)")
