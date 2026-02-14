@@ -58,12 +58,18 @@ bot = Bot(token=MASTER_BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# АБСОЛЮТНЫЙ путь к базе данных
-DB_PATH = str(PROJECT_ROOT / "subscriptions.db")
-logger.info(f"💾 Database path: {DB_PATH}")
+# ✅ PostgreSQL подключение из ENV
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://booking_user:SecurePass2026!@postgres:5432/booking_saas"
+)
+PG_SCHEMA = os.getenv("PG_SCHEMA", "master_bot")
+
+logger.info(f"💾 Database: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else DATABASE_URL}")
+logger.info(f"📂 Schema: {PG_SCHEMA}")
 logger.info(f"📂 Project root: {PROJECT_ROOT}")
 
-sub_manager = SubscriptionManager(DB_PATH)
+sub_manager = SubscriptionManager(database_url=DATABASE_URL, schema=PG_SCHEMA)
 
 # === DEPLOY QUEUE ===
 deploy_queue = DeployQueue(
@@ -183,7 +189,6 @@ async def cmd_help(message: types.Message):
 /stats - Статистика
 /clients - Список всех клиентов
 /queue - Статус очереди деплоя
-/dbpath - Показать путь к базе данных
 /help - Эта справка
 
 Добавление клиента:
@@ -206,6 +211,7 @@ async def cmd_help(message: types.Message):
 • Master Bot (Docker) - управление
 • Redis Queue - очередь задач
 • Deploy Worker (HOST) - деплой клиентов
+• PostgreSQL - база данных
 
 Поддержка: 
 https://github.com/balzampsilo-sys/new12_02/blob/main/QUEUE_SETUP.md
@@ -243,24 +249,6 @@ async def cmd_queue(message: types.Message):
     await message.answer(status_text)
 
 
-@dp.message(Command("dbpath"))
-async def cmd_dbpath(message: types.Message):
-    """Показать путь к базе данных (для отладки)"""
-    if not is_admin(message.from_user.id):
-        return
-    
-    db_exists = Path(DB_PATH).exists()
-    db_size = Path(DB_PATH).stat().st_size if db_exists else 0
-    
-    info = f"🔍 ИНФОРМАЦИЯ О БАЗЕ ДАННЫХ\n\n"
-    info += f"📂 Путь: {DB_PATH}\n"
-    info += f"{'✅' if db_exists else '❌'} Существует: {'Да' if db_exists else 'Нет'}\n"
-    info += f"📦 Размер: {db_size} bytes\n\n"
-    info += f"📂 Project root: {PROJECT_ROOT}"
-    
-    await message.answer(info)
-
-
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
     if not is_admin(message.from_user.id):
@@ -274,7 +262,7 @@ async def cmd_stats(message: types.Message):
     stats_text += f"⏸️ Приостановлено: {stats['suspended_clients']}\n"
     stats_text += f"🆓 Триал: {stats.get('trial_clients', 0)}\n\n"
     stats_text += f"💾 Redis DB:\n"
-    stats_text += f"   • Занято: {16 - stats['available_redis_dbs']}\n"
+    stats_text += f"   • Занято: {128 - stats['available_redis_dbs']}\n"
     stats_text += f"   • Свободно: {stats['available_redis_dbs']}\n\n"
     stats_text += f"💰 Доход за месяц: {stats['monthly_revenue']:.2f} ₽"
     
@@ -743,14 +731,15 @@ async def show_help(message: types.Message):
 async def main():
     logger.info("🚀 Master Bot starting...")
     logger.info(f"Admin IDs: {ADMIN_IDS}")
+    logger.info(f"Database: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'local'}")
+    logger.info(f"Schema: {PG_SCHEMA}")
     
     # Проверить что БД доступна
-    if Path(DB_PATH).exists():
-        logger.info(f"✅ Database found: {DB_PATH}")
+    try:
         stats = sub_manager.get_statistics()
-        logger.info(f"📊 Loaded {stats['total_clients']} clients from database")
-    else:
-        logger.warning(f"⚠️ Database not found, will be created: {DB_PATH}")
+        logger.info(f"✅ PostgreSQL connected. Loaded {stats['total_clients']} clients")
+    except Exception as e:
+        logger.error(f"❌ PostgreSQL connection failed: {e}")
     
     # Проверить очередь
     if deploy_queue.is_available():
