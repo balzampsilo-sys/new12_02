@@ -23,6 +23,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.utils.markdown import escape_md
 
 # Загрузить переменные окружения из .env
 from dotenv import load_dotenv
@@ -180,38 +181,38 @@ async def cmd_help(message: types.Message):
 📚 **ПОМОЩЬ**
 
 **Основные команды:**
-/start - Главное меню
-/stats - Статистика
-/clients - Список всех клиентов
-/queue - Статус очереди деплоя
-/dbpath - Показать путь к базе данных
-/help - Эта справка
+/start \- Главное меню
+/stats \- Статистика
+/clients \- Список всех клиентов
+/queue \- Статус очереди деплоя
+/dbpath \- Показать путь к базе данных
+/help \- Эта справка
 
 **Добавление клиента:**
-1. Нажмите "➕ Добавить клиента"
-2. Отправьте токен бота (от @BotFather)
-3. Отправьте Telegram ID клиента (от @userinfobot)
-4. Введите название компании
-5. Подтвердите - задача добавится в очередь
-6. Deploy Worker автоматически выполнит деплой
-7. Вы получите уведомление о результате
+1\. Нажмите "➕ Добавить клиента"
+2\. Отправьте токен бота \(от @BotFather\)
+3\. Отправьте Telegram ID клиента \(от @userinfobot\)
+4\. Введите название компании
+5\. Подтвердите \- задача добавится в очередь
+6\. Deploy Worker автоматически выполнит деплой
+7\. Вы получите уведомление о результате
 
 **Прием платежа:**
-1. Нажмите "💰 Принять платеж"
-2. Введите название компании для поиска
-3. Выберите период продления
-4. Введите сумму платежа (или используйте рекомендуемую)
-5. Подтвердите
+1\. Нажмите "💰 Принять платеж"
+2\. Введите название компании для поиска
+3\. Выберите период продления
+4\. Введите сумму платежа \(или используйте рекомендуемую\)
+5\. Подтвердите
 
 **Архитектура:**
-• Master Bot (Docker) - управление
-• Redis Queue - очередь задач
-• Deploy Worker (HOST) - деплой клиентов
+• Master Bot \(Docker\) \- управление
+• Redis Queue \- очередь задач
+• Deploy Worker \(HOST\) \- деплой клиентов
 
 **Поддержка:** 
-https://github.com/balzampsilo-sys/new12_02/blob/main/QUEUE_SETUP.md
+https://github\.com/balzampsilo\-sys/new12\_02/blob/main/QUEUE\_SETUP\.md
     """
-    await message.answer(help_text, parse_mode="Markdown")
+    await message.answer(help_text, parse_mode="MarkdownV2")
 
 
 @dp.message(Command("queue"))
@@ -430,15 +431,20 @@ async def process_company_name(message: types.Message, state: FSMContext):
     await state.update_data(company_name=company_name)
     data = await state.get_data()
     
+    # Экранировать спецсимволы Markdown
+    safe_company = escape_md(data['company_name'])
+    safe_token = escape_md(data['bot_token'][:20] + "...")
+    safe_admin_id = escape_md(str(data['admin_telegram_id']))
+    
     confirmation_text = f"""
 📋 **ПОДТВЕРЖДЕНИЕ**
 
-🏢 Компания: **{data['company_name']}**
-🤖 Токен: `{data['bot_token'][:20]}...`
-👤 Admin ID: `{data['admin_telegram_id']}`
+🏢 Компания: **{safe_company}**
+🤖 Токен: `{safe_token}`
+👤 Admin ID: `{safe_admin_id}`
 
-⚡ После подтверждения задача будет добавлена в очередь деплоя!
-🤖 Deploy Worker автоматически выполнит развёртывание.
+⚡ После подтверждения задача будет добавлена в очередь деплоя\!
+🤖 Deploy Worker автоматически выполнит развёртывание\.
 
 Продолжить?
     """
@@ -447,7 +453,7 @@ async def process_company_name(message: types.Message, state: FSMContext):
     await message.answer(
         confirmation_text,
         reply_markup=confirm_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="MarkdownV2"
     )
 
 
@@ -493,22 +499,26 @@ async def process_confirmation(message: types.Message, state: FSMContext):
         # Уведомить о постановке в очередь
         queue_length = deploy_queue.get_queue_length()
         
+        # Экранировать для MarkdownV2
+        safe_company = escape_md(data['company_name'])
+        safe_task_id = escape_md(task_id)
+        
         success_text = f"""
 ✅ **ЗАДАЧА ДОБАВЛЕНА В ОЧЕРЕДЬ**
 
-🏢 Компания: **{data['company_name']}**
-🆔 Task ID: `{task_id}`
+🏢 Компания: **{safe_company}**
+🆔 Task ID: `{safe_task_id}`
 📋 Позиция в очереди: **{queue_length}**
 
-⏳ Деплой начнётся в течение 1-2 минут.
-🔔 Вы получите уведомление о результате.
+⏳ Деплой начнётся в течение 1\-2 минут\.
+🔔 Вы получите уведомление о результате\.
 
 💡 Проверить статус: /queue
         """
         
         await message.answer(
             success_text,
-            parse_mode="Markdown",
+            parse_mode="MarkdownV2",
             reply_markup=main_menu_keyboard()
         )
         
@@ -517,10 +527,8 @@ async def process_confirmation(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Error adding task to queue: {e}", exc_info=True)
         await message.answer(
-            f"❌ **КРИТИЧЕСКАЯ ОШИБКА**\n\n"
-            f"Ошибка: {str(e)}\n\n"
+            f"❌ КРИТИЧЕСКАЯ ОШИБКА\n\n"
             f"Обратитесь к техподдержке",
-            parse_mode="Markdown",
             reply_markup=main_menu_keyboard()
         )
     
@@ -528,7 +536,7 @@ async def process_confirmation(message: types.Message, state: FSMContext):
         await state.clear()
 
 
-# === ПЛАТЕЖИ ===
+# === ПЛАТЕЖИ (сокращено для места) ===
 @dp.message(F.text == "💰 Принять платеж")
 async def start_payment(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
@@ -750,9 +758,8 @@ async def process_payment_confirmation(message: types.Message, state: FSMContext
     except Exception as e:
         logger.error(f"Payment error: {e}", exc_info=True)
         await message.answer(
-            f"❌ **КРИТИЧЕСКАЯ ОШИБКА**\n\n"
-            f"Ошибка: {str(e)}",
-            parse_mode="Markdown"
+            f"❌ КРИТИЧЕСКАЯ ОШИБКА\n\n"
+            f"Обратитесь к техподдержке",
         )
     
     finally:
