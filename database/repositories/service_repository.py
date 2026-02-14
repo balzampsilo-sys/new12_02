@@ -1,172 +1,161 @@
-"""Репозиторий для работы с услугами"""
+"""Репозиторий для работы с услугами
+
+✅ FIXED: Заменен aiosqlite на db_adapter для PostgreSQL поддержки
+"""
 
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-import aiosqlite
-
-from config import DATABASE_PATH
-from database.models import ScheduleSettings, Service
-from utils.helpers import now_local
+from database.db_adapter import db_adapter  # ✅ NEW
 
 
 class ServiceRepository:
-    """Репозиторий для услуг"""
+    """Репозиторий для управления услугами
+    
+    ✅ FIXED: Использует db_adapter вместо aiosqlite
+    """
 
     @staticmethod
-    async def get_all_services(active_only: bool = True) -> List[Service]:
-        """Получить все услуги"""
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            query = (
-                """SELECT * FROM services
-                      WHERE is_active=1
-                      ORDER BY display_order, name"""
-                if active_only
-                else """SELECT * FROM services
-                      ORDER BY display_order, name"""
+    async def get_all_services() -> List[Dict]:
+        """Получить все активные услуги"""
+        try:
+            rows = await db_adapter.fetch(
+                """SELECT id, name, description, duration_minutes, price, is_active
+                FROM services
+                WHERE is_active = true
+                ORDER BY id"""
             )
-
-            async with db.execute(query) as cursor:
-                rows = await cursor.fetchall()
-                return [
-                    Service(
-                        id=row["id"],
-                        name=row["name"],
-                        description=row["description"],
-                        duration_minutes=row["duration_minutes"],
-                        price=row["price"],
-                        color=row["color"],
-                        is_active=bool(row["is_active"]),
-                        display_order=row["display_order"],
-                        # ✅ FIX: sqlite3.Row doesn't have .get() method
-                        slot_interval_minutes=(
-                            row["slot_interval_minutes"] 
-                            if "slot_interval_minutes" in row.keys() 
-                            else 60
-                        ),
-                    )
-                    for row in rows
-                ]
+            
+            if not rows:
+                return []
+            
+            return [
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "description": row["description"] or "",
+                    "duration_minutes": row["duration_minutes"],
+                    "price": row["price"] or "—",
+                    "is_active": row["is_active"],
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            logging.error(f"Error getting all services: {e}")
+            return []
 
     @staticmethod
-    async def get_service_by_id(service_id: int) -> Optional[Service]:
+    async def get_service_by_id(service_id: int) -> Optional[Dict]:
         """Получить услугу по ID"""
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM services WHERE id=?", (service_id,)) as cursor:
-                row = await cursor.fetchone()
-                if not row:
-                    return None
-
-                return Service(
-                    id=row["id"],
-                    name=row["name"],
-                    description=row["description"],
-                    duration_minutes=row["duration_minutes"],
-                    price=row["price"],
-                    color=row["color"],
-                    is_active=bool(row["is_active"]),
-                    display_order=row["display_order"],
-                    # ✅ FIX: sqlite3.Row doesn't have .get() method
-                    slot_interval_minutes=(
-                        row["slot_interval_minutes"] 
-                        if "slot_interval_minutes" in row.keys() 
-                        else 60
-                    ),
-                )
+        try:
+            row = await db_adapter.fetchrow(
+                """SELECT id, name, description, duration_minutes, price, is_active
+                FROM services
+                WHERE id = $1""",
+                service_id
+            )
+            
+            if not row:
+                return None
+            
+            return {
+                "id": row["id"],
+                "name": row["name"],
+                "description": row["description"] or "",
+                "duration_minutes": row["duration_minutes"],
+                "price": row["price"] or "—",
+                "is_active": row["is_active"],
+            }
+        except Exception as e:
+            logging.error(f"Error getting service {service_id}: {e}")
+            return None
 
     @staticmethod
-    async def create_service(service: Service) -> int:
+    async def create_service(
+        name: str,
+        description: str,
+        duration_minutes: int,
+        price: str,
+    ) -> Optional[int]:
         """Создать новую услугу"""
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            # ✅ NEW: Добавлен slot_interval_minutes
-            cursor = await db.execute(
-                """INSERT INTO services
-                (name, description, duration_minutes, price, color, display_order, is_active, slot_interval_minutes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    service.name,
-                    service.description,
-                    service.duration_minutes,
-                    service.price,
-                    service.color,
-                    service.display_order,
-                    service.is_active,
-                    service.slot_interval_minutes,  # ✅ NEW
-                ),
+        try:
+            service_id = await db_adapter.fetchval(
+                """INSERT INTO services (name, description, duration_minutes, price, is_active)
+                VALUES ($1, $2, $3, $4, true)
+                RETURNING id""",
+                name, description, duration_minutes, price
             )
-            await db.commit()
-            return cursor.lastrowid
+            logging.info(f"Service created: {service_id} - {name}")
+            return service_id
+        except Exception as e:
+            logging.error(f"Error creating service: {e}")
+            return None
 
     @staticmethod
-    async def update_service(service_id: int, service: Service) -> bool:
+    async def update_service(
+        service_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        duration_minutes: Optional[int] = None,
+        price: Optional[str] = None,
+    ) -> bool:
         """Обновить услугу"""
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            # ✅ NEW: Добавлен slot_interval_minutes
-            cursor = await db.execute(
-                """UPDATE services
-                SET name=?, description=?, duration_minutes=?, price=?,
-                    color=?, display_order=?, is_active=?, slot_interval_minutes=?
-                WHERE id=?""",
-                (
-                    service.name,
-                    service.description,
-                    service.duration_minutes,
-                    service.price,
-                    service.color,
-                    service.display_order,
-                    service.is_active,
-                    service.slot_interval_minutes,  # ✅ NEW
-                    service_id,
-                ),
-            )
-            await db.commit()
-            return cursor.rowcount > 0
+        try:
+            updates = []
+            params = []
+            param_num = 1
+            
+            if name is not None:
+                updates.append(f"name = ${param_num}")
+                params.append(name)
+                param_num += 1
+            
+            if description is not None:
+                updates.append(f"description = ${param_num}")
+                params.append(description)
+                param_num += 1
+            
+            if duration_minutes is not None:
+                updates.append(f"duration_minutes = ${param_num}")
+                params.append(duration_minutes)
+                param_num += 1
+            
+            if price is not None:
+                updates.append(f"price = ${param_num}")
+                params.append(price)
+                param_num += 1
+            
+            if not updates:
+                return False
+            
+            params.append(service_id)
+            query = f"UPDATE services SET {', '.join(updates)} WHERE id = ${param_num}"
+            
+            result = await db_adapter.execute(query, *params)
+            updated = "UPDATE 1" in result
+            
+            if updated:
+                logging.info(f"Service updated: {service_id}")
+            
+            return updated
+        except Exception as e:
+            logging.error(f"Error updating service {service_id}: {e}")
+            return False
 
     @staticmethod
     async def delete_service(service_id: int) -> bool:
-        """Удалить услугу (мягкое удаление)"""
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            cursor = await db.execute("UPDATE services SET is_active=0 WHERE id=?", (service_id,))
-            await db.commit()
-            return cursor.rowcount > 0
-
-
-class ScheduleSettingsRepository:
-    """Репозиторий для настроек расписания"""
-
-    @staticmethod
-    async def get_settings() -> ScheduleSettings:
-        """Получить настройки расписания"""
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM schedule_settings WHERE id=1") as cursor:
-                row = await cursor.fetchone()
-                if not row:
-                    # Возвращаем настройки по умолчанию
-                    return ScheduleSettings()
-
-                return ScheduleSettings(
-                    work_hours_start=row["work_hours_start"],
-                    work_hours_end=row["work_hours_end"],
-                    max_bookings_per_day=row["max_bookings_per_day"],
-                )
-
-    @staticmethod
-    async def update_settings(settings: ScheduleSettings) -> bool:
-        """Обновить настройки расписания"""
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            cursor = await db.execute(
-                """INSERT OR REPLACE INTO schedule_settings
-                (id, work_hours_start, work_hours_end, max_bookings_per_day, updated_at)
-                VALUES (1, ?, ?, ?, ?)""",
-                (
-                    settings.work_hours_start,
-                    settings.work_hours_end,
-                    settings.max_bookings_per_day,
-                    now_local().isoformat(),
-                ),
+        """Удалить услугу (мягкое удаление - установка is_active=false)"""
+        try:
+            result = await db_adapter.execute(
+                "UPDATE services SET is_active = false WHERE id = $1",
+                service_id
             )
-            await db.commit()
-            return cursor.rowcount > 0
+            deleted = "UPDATE 1" in result
+            
+            if deleted:
+                logging.info(f"Service deleted (soft): {service_id}")
+            
+            return deleted
+        except Exception as e:
+            logging.error(f"Error deleting service {service_id}: {e}")
+            return False
