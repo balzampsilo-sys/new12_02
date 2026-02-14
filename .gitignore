@@ -1,41 +1,33 @@
-# ========================================
-# CLIENT DATA (NEVER COMMIT)
-# ========================================
-# Each client has their own directory with sensitive data
-clients/
-redis_data/
-
-# ========================================
-# ENVIRONMENT FILES
-# ========================================
+# Environment files with passwords
+.env.shared.local
 .env
-.env.*
-!.env.example
+clients/*/.env
 
-# ========================================
-# DATABASES
-# ========================================
+# Database files
 *.db
 *.db-journal
-*.sqlite
-*.sqlite3
+*.sql
+*.sql.gz
+postgres_data/
 
-# ========================================
-# BACKUPS
-# ========================================
+# Backup files
 backups/
-*.backup
-*.bak
+clients/*/backups/
 
-# ========================================
-# LOGS
-# ========================================
+# Logs
 logs/
+clients/*/logs/
 *.log
 
-# ========================================
-# PYTHON
-# ========================================
+# Data directories
+data/
+clients/*/data/
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -62,20 +54,11 @@ PIPFILE.lock
 
 # Virtual Environment
 venv/
-env/
 ENV/
-env.bak/
-venv.bak/
+env/
+.venv
 
-# ========================================
-# DOCKER
-# ========================================
-# Don't ignore docker-compose files
-# !docker-compose*.yml
-
-# ========================================
 # IDE
-# ========================================
 .vscode/
 .idea/
 *.swp
@@ -83,29 +66,15 @@ venv.bak/
 *~
 .DS_Store
 
-# ========================================
-# TESTING
-# ========================================
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
-.tox/
-.hypothesis/
 
-# ========================================
-# TEMPORARY FILES
-# ========================================
+# Temporary files
 *.tmp
-*.temp
+*.bak
 *.cache
 
-# ========================================
-# OS
-# ========================================
-Thumbs.db
-.DS_Store
-
-# ========================================
-# SENTRY
-# ========================================
-.sentryclirc
+# Infrastructure compose file (generated)
+docker-compose.infrastructure.yml
