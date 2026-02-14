@@ -24,6 +24,111 @@
 
 ---
 
+## 🚀 Быстрый старт (5 минут)
+
+### ⚡ Автоматическая сборка (рекомендуется)
+
+**Windows:**
+```bash
+git clone https://github.com/balzampsilo-sys/new12_02.git
+cd new12_02
+cp .env.example .env
+# Отредактировать .env (указать токены)
+rebuild.bat
+```
+
+**Linux/Mac:**
+```bash
+git clone https://github.com/balzampsilo-sys/new12_02.git
+cd new12_02
+cp .env.example .env
+# Отредактировать .env (указать токены)
+chmod +x rebuild.sh
+./rebuild.sh
+```
+
+Скрипт автоматически:
+1. ✅ Остановит контейнеры
+2. ✅ Удалит старые образы
+3. ✅ Очистит build cache
+4. ✅ Пересоберет оба бота с нуля
+5. ✅ Запустит контейнеры
+6. ✅ Покажет статус
+
+---
+
+### 🛠️ Ручная сборка
+
+```bash
+# 1. Клонировать репозиторий
+git clone https://github.com/balzampsilo-sys/new12_02.git
+cd new12_02
+
+# 2. Настроить .env
+cp .env.example .env
+nano .env  # или notepad .env на Windows
+
+# Указать токены ОБОИХ ботов:
+BOT_TOKEN_MASTER=your_master_bot_token
+BOT_TOKEN_SALES=your_sales_bot_token
+ADMIN_IDS_MASTER=your_telegram_id
+ADMIN_IDS_SALES=your_telegram_id
+
+# 3. Собрать и запустить
+docker-compose build --no-cache
+docker-compose up -d
+
+# 4. Проверить статус
+docker-compose ps
+
+# Должны увидеть:
+# ✅ booking-postgres     Up (healthy)
+# ✅ booking-redis        Up (healthy)
+# ✅ booking-bot-master   Up
+# ✅ booking-bot-sales    Up
+
+# 5. Просмотреть логи
+docker-compose logs -f bot-master
+
+# Должны увидеть:
+# 📦 Initializing schema: master_bot
+#   ✅ Schema created: master_bot
+#   ✅ Created 12 tables
+#   ✅ Created 16 indexes
+# 🤖 Bot started successfully
+```
+
+**Готово!** Оба бота запущены и работают! 🎉
+
+---
+
+## 🔄 Обновление кода
+
+### Способ 1: Скрипт (быстро)
+
+**Windows:**
+```bash
+git pull
+rebuild.bat
+```
+
+**Linux/Mac:**
+```bash
+git pull
+./rebuild.sh
+```
+
+### Способ 2: Вручную
+
+```bash
+git pull
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+---
+
 ## ✨ Ключевые возможности
 
 ### 🎯 **Бизнес-функции**
@@ -110,77 +215,6 @@
 
 ---
 
-## 🚀 Быстрый старт (5 минут)
-
-### Вариант 1: Docker Compose (рекомендуется)
-
-```bash
-# 1. Клонировать репозиторий
-git clone https://github.com/balzampsilo-sys/new12_02.git
-cd new12_02
-
-# 2. Настроить .env
-cp .env.example .env
-nano .env
-
-# Указать токены ОБОИХ ботов:
-BOT_TOKEN_MASTER=your_master_bot_token
-BOT_TOKEN_SALES=your_sales_bot_token
-ADMIN_IDS_MASTER=your_telegram_id
-ADMIN_IDS_SALES=your_telegram_id
-
-# 3. Запустить ВСЁ одной командой
-docker-compose up -d
-
-# 4. Проверить статус
-docker-compose ps
-
-# Должны увидеть:
-# ✅ booking-postgres     Up (healthy)
-# ✅ booking-redis        Up (healthy)
-# ✅ booking-bot-master   Up
-# ✅ booking-bot-sales    Up
-
-# 5. Просмотреть логи
-docker-compose logs -f bot-master
-
-# Должны увидеть:
-# 📦 Initializing schema: master_bot
-#   ✅ Schema created: master_bot
-#   ✅ Created 12 tables
-#   ✅ Created 16 indexes
-# 🤖 Bot started successfully
-```
-
-**Готово!** Оба бота запущены и работают! 🎉
-
----
-
-### Вариант 2: Локальная разработка
-
-```bash
-# 1. Установить зависимости
-pip install -r requirements.txt
-
-# 2. Запустить PostgreSQL + Redis
-docker-compose -f docker-compose.postgres.yml up -d
-
-# 3. Настроить .env для ОДНОГО бота
-cp .env.example .env
-nano .env
-
-BOT_TOKEN=your_token
-ADMIN_IDS=your_id
-CLIENT_ID=dev_bot
-DB_TYPE=postgresql
-DATABASE_URL=postgresql://booking_user:SecurePass2026!@localhost:5432/booking_saas
-
-# 4. Запустить бота
-python main.py
-```
-
----
-
 ## 📖 Полная документация
 
 📚 **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Подробное руководство по развертыванию
@@ -214,7 +248,7 @@ python main.py
 ### Основные зависимости
 ```txt
 aiogram==3.21.0
-asyncpg==0.30.0
+asyncpg==0.29.0
 redis==5.2.1
 APScheduler==3.10.4
 sentry-sdk==2.19.2
@@ -310,13 +344,6 @@ docker-compose logs -f bot-master
 docker-compose logs --tail=100 bot-master
 ```
 
-### Обновление кода
-```bash
-git pull
-docker-compose build
-docker-compose up -d
-```
-
 ---
 
 ## 🔧 Конфигурация
@@ -383,47 +410,6 @@ SENTRY_DSN=your_sentry_dsn
 - **Диск:** SSD обязательно
 - **Сеть:** Минимум 100 Мбит/с
 
-### PostgreSQL тюнинг
-
-В `docker-compose.yml` уже настроены оптимальные параметры:
-```yaml
-shared_buffers=256MB
-max_connections=100
-effective_cache_size=1GB
-work_mem=4MB
-```
-
----
-
-## ✅ Production Checklist
-
-Перед запуском в production:
-
-- [ ] Изменить пароли PostgreSQL и Redis
-- [ ] Настроить SSL сертификаты (Let's Encrypt)
-- [ ] Настроить firewall (закрыть порты 5432, 6379)
-- [ ] Настроить автоматические бэкапы (cron)
-- [ ] Подключить Sentry для мониторинга
-- [ ] Настроить логирование (ELK/Grafana)
-- [ ] Ограничить SSH доступ
-- [ ] Настроить мониторинг ресурсов
-- [ ] Документировать процедуры восстановления
-
----
-
-## 🔒 Безопасность
-
-### Изоляция данных
-- ✅ **SQL-уровень:** PostgreSQL schemas с `search_path`
-- ✅ **Redis-уровень:** Уникальные key prefixes
-- ✅ **Код-уровень:** CLIENT_ID валидация
-
-### Защита от атак
-- ✅ **Rate limiting:** Защита от флуда
-- ✅ **SQL injection:** Параметризованные запросы
-- ✅ **Input validation:** Проверка всех входных данных
-- ✅ **Non-root containers:** Docker security
-
 ---
 
 ## 🐛 Troubleshooting
@@ -438,6 +424,28 @@ docker-compose logs bot-master
 # 1. Неверный BOT_TOKEN
 # 2. PostgreSQL недоступен
 # 3. Redis недоступен
+# 4. Не установлены зависимости (см. ниже)
+```
+
+### ModuleNotFoundError: No module named 'aiogram'
+
+**Решение:** Пересобрать образы с нуля
+
+**Windows:**
+```bash
+rebuild.bat
+```
+
+**Linux/Mac:**
+```bash
+./rebuild.sh
+```
+
+**Или вручную:**
+```bash
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
 ```
 
 ### Schema не создается
@@ -448,16 +456,6 @@ docker-compose exec postgres psql -U booking_user -d booking_saas
 
 # Должны быть права:
 GRANT ALL ON SCHEMA public TO booking_user;
-```
-
-### Бот не отвечает
-
-```bash
-# Проверить health checks
-docker-compose ps
-
-# Перезапустить
-docker-compose restart bot-master
 ```
 
 ---
