@@ -53,12 +53,13 @@ services:
     networks:
       - booking-network
 
-  # ✅ MASTER BOT - основной бот
+  # ✅ MASTER BOT - управление подписками и клиентами
   bot-master:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: booking-bot-master
+    command: python master_bot/master_bot.py  # ✅ FIXED: запускаем правильный файл
     environment:
       # Bot Configuration
       BOT_TOKEN: ${BOT_TOKEN_MASTER}
@@ -110,12 +111,13 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ✅ SALES BOT - бот для продаж
+  # ✅ SALES BOT - продажа подписок с ЮKassa
   bot-sales:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: booking-bot-sales
+    command: python sales_bot/sales_bot.py  # ✅ FIXED: запускаем правильный файл
     environment:
       # Bot Configuration
       BOT_TOKEN: ${BOT_TOKEN_SALES}
