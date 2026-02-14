@@ -1,449 +1,341 @@
-# 🚀 DEPLOYMENT GUIDE: Multi-Client Bot Setup
+# 🚀 DEPLOYMENT GUIDE: Multi-Bot Architecture
 
-## 🎯 Architecture Overview
-
-This bot uses a **managed SaaS model** where:
-- **One Redis** serves all bot instances (using different DB numbers 0-15)
-- **Each client** gets their own bot container with isolated database
-- **You manage** all deployments on your server
-
-```
-┌──────────────────────────────────────────────┐
-│         SHARED REDIS (booking-bot-redis-shared)         │
-│  ┌────────────────────────────────────────┐  │
-│  │ DB 0 → Bot Client 1 (Beauty Salon)        │  │
-│  │ DB 1 → Bot Client 2 (Massage Parlor)      │  │
-│  │ DB 2 → Bot Client 3 (Nail Studio)         │  │
-│  │ ...                                        │  │
-│  │ DB 15 → Bot Client 16                     │  │
-│  └────────────────────────────────────────┘  │
-└──────────────────────────────────────────────┘
-          │                │                │
-          ↓                ↓                ↓
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ bot-client-1 │  │ bot-client-2 │  │ bot-client-3 │
-│   (DB 0)     │  │   (DB 1)     │  │   (DB 2)     │
-│ bookings.db  │  │ bookings.db  │  │ bookings.db  │
-└─────────────┘  └─────────────┘  └─────────────┘
-```
+Этот проект поддерживает **неограниченное количество ботов** с полной изоляцией данных.
 
 ---
 
-## 🛠️ Initial Setup (One Time)
+## 🎯 АРХИТЕКТУРА
 
-### 1. **Install Docker**
+```
+┌──────────────────────────────────────────────────┐
+│          MULTI-BOT ARCHITECTURE                    │
+└──────────────────────────────────────────────────┘
 
-```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install docker.io docker-compose -y
-sudo systemctl start docker
-sudo systemctl enable docker
+   Master Bot              Sales Bot             Future Bot
+   (master_bot)           (sales_bot)           (new_bot)
+        │                      │                      │
+        │                      │                      │
+        └────────────┬────────────┘                      │
+                       │                                 │
+                       v                                 v
+        ┌───────────────────────────────────────────┐
+        │     PostgreSQL (booking_saas)              │
+        │                                            │
+        │  ┌──────────────────────────────────┐  │
+        │  │ Schema: master_bot                │  │
+        │  │ - bookings, services, users...  │  │
+        │  └──────────────────────────────────┘  │
+        │                                            │
+        │  ┌──────────────────────────────────┐  │
+        │  │ Schema: sales_bot                 │  │
+        │  │ - bookings, services, users...  │  │
+        │  └──────────────────────────────────┘  │
+        │                                            │
+        │  ┌──────────────────────────────────┐  │
+        │  │ Schema: new_bot (future)        │  │
+        │  │ - bookings, services, users...  │  │
+        │  └──────────────────────────────────┘  │
+        └───────────────────────────────────────────┘
 
-# Add user to docker group
-sudo usermod -aG docker $USER
-# Log out and back in for group changes to take effect
+        ┌───────────────────────────────────────────┐
+        │     Redis (FSM States)                 │
+        │                                            │
+        │  Keys: master_bot:user:123:state         │
+        │  Keys: sales_bot:user:456:state          │
+        │  Keys: new_bot:user:789:state (future)   │
+        └───────────────────────────────────────────┘
 ```
 
-### 2. **Clone Repository**
+**Ключевые особенности:**
+- ✅ **Полная изоляция** данных через PostgreSQL schemas
+- ✅ **Неограниченное количество ботов** (не 16 DB, а key prefixes)
+- ✅ **Автоматическое создание** schemas при запуске
 
+---
+
+## 🚀 БЫСТРЫЙ СТАРТ
+
+### Шаг 1: Клонировать репозиторий
 ```bash
 git clone https://github.com/balzampsilo-sys/new12_02.git
 cd new12_02
 ```
 
-### 3. **Create Directory Structure**
-
+### Шаг 2: Настроить .env
 ```bash
-mkdir -p clients redis_data
+cp .env.example .env
+nano .env
 ```
 
-### 4. **Start Shared Redis (Once)**
+**Обязательно укажите:**
+```env
+# Master Bot
+BOT_TOKEN_MASTER=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+ADMIN_IDS_MASTER=123456789,987654321
 
-```bash
-# Start shared Redis container
-docker-compose -f docker-compose.redis.yml up -d
+# Sales Bot
+BOT_TOKEN_SALES=0987654321:ZYXwvuTSRqponMLKjiHGFedcba
+ADMIN_IDS_SALES=111111111,222222222
 
-# Verify Redis is running
-docker ps | grep redis
-
-# Should see:
-# booking-bot-redis-shared
+# Database
+POSTGRES_PASSWORD=YourSecurePassword123!
 ```
 
----
-
-## 👥 Deploying Clients
-
-### **Method 1: Automated Script (Recommended)**
-
+### Шаг 3: Запустить все сервисы
 ```bash
-# Make script executable
-chmod +x scripts/deploy_client.sh
-
-# Deploy new client
-./scripts/deploy_client.sh CLIENT_ID "BOT_TOKEN" ADMIN_ID REDIS_DB "Company Name"
+docker-compose up -d
 ```
 
-**Example:**
+**Это запустит:**
+- ✅ PostgreSQL (booking_saas)
+- ✅ Redis (FSM states)
+- ✅ Master Bot (master_bot schema)
+- ✅ Sales Bot (sales_bot schema)
 
+### Шаг 4: Проверить статус
 ```bash
-# Client 1: Beauty Salon
-./scripts/deploy_client.sh client_001 "123456789:ABCdefGHI" 987654321 0 "Beauty Salon"
+docker-compose ps
 
-# Client 2: Massage Parlor
-./scripts/deploy_client.sh client_002 "234567890:XYZabcDEF" 123456789 1 "Massage Parlor"
-
-# Client 3: Nail Studio
-./scripts/deploy_client.sh client_003 "345678901:QWErtyUIO" 456789012 2 "Nail Studio"
+# Должны увидеть:
+# booking-postgres    Up (healthy)
+# booking-redis       Up (healthy)
+# booking-bot-master  Up
+# booking-bot-sales   Up
 ```
 
-**IMPORTANT:** 
-- Each client MUST have a unique `REDIS_DB` (0-15)
-- Maximum 16 clients per Redis instance
-- BOT_TOKEN: Get from @BotFather
-- ADMIN_ID: Get from @userinfobot
-
----
-
-### **Method 2: Manual Deployment**
-
+### Шаг 5: Просмотреть логи
 ```bash
-# 1. Create client directory
-mkdir -p clients/client_001
-cd clients/client_001
+# Master Bot
+docker-compose logs -f bot-master
 
-# 2. Copy bot files
-cp -r ../../{handlers,database,services,middlewares,utils,keyboards,main.py,config.py,requirements.txt,Dockerfile,.dockerignore} .
+# Должны увидеть:
+# 📦 Initializing schema: master_bot
+#   ✅ Schema created: master_bot
+#   ✅ Created 12 tables
+#   ✅ Created 16 indexes
+# ✅ Bot started successfully
 
-# 3. Create .env file
-cat > .env <<EOF
-BOT_TOKEN=your_bot_token
-ADMIN_IDS=your_telegram_id
+# Sales Bot
+docker-compose logs -f bot-sales
 
-REDIS_ENABLED=True
-REDIS_HOST=redis-shared
-REDIS_PORT=6379
-REDIS_DB=0
-
-DATABASE_PATH=/app/data/bookings.db
-BACKUP_ENABLED=True
-WORK_HOURS_START=9
-WORK_HOURS_END=18
-EOF
-
-# 4. Copy docker-compose.yml from root and modify
-cp ../../docker-compose.yml .
-# Edit container_name to: bot-client-001
-
-# 5. Start bot
-docker-compose up -d --build
+# Должны увидеть:
+# 📦 Initializing schema: sales_bot
+#   ✅ Schema created: sales_bot
+#   ✅ Created 12 tables
+#   ✅ Created 16 indexes
+# ✅ Bot started successfully
 ```
 
 ---
 
-## 📊 Redis DB Allocation
+## ✅ ПРОВЕРКА ИЗОЛЯЦИИ
 
-**Keep track of used Redis DB numbers:**
+### Проверить PostgreSQL schemas:
+```bash
+docker-compose exec postgres psql -U booking_user -d booking_saas
 
-| Redis DB | Client ID | Company Name | Status |
-|----------|-----------|--------------|--------|
-| 0 | client_001 | Beauty Salon | Active |
-| 1 | client_002 | Massage Parlor | Active |
-| 2 | client_003 | Nail Studio | Active |
-| 3 | client_004 | - | Available |
-| ... | ... | ... | ... |
-| 15 | client_016 | - | Available |
+# Проверить schemas
+SELECT schema_name FROM information_schema.schemata 
+WHERE schema_name LIKE '%_bot';
 
-**⚠️ WARNING:** If you need more than 16 clients, you must:
-1. Deploy another Redis instance (`docker-compose.redis.yml` with different name)
-2. Update new clients to use the second Redis
+# Результат:
+#  schema_name  
+# --------------
+#  master_bot
+#  sales_bot
+
+# Проверить таблицы master_bot
+SET search_path TO master_bot;
+\dt
+
+# Должны увидеть 12 таблиц
+
+# Проверить таблицы sales_bot
+SET search_path TO sales_bot;
+\dt
+
+# Должны увидеть 12 таблиц
+```
+
+### Проверить Redis key prefixes:
+```bash
+docker-compose exec redis redis-cli
+
+# Посмотреть все ключи
+KEYS *
+
+# Должны увидеть:
+# 1) "master_bot:user:123456789:state"
+# 2) "sales_bot:user:111111111:state"
+
+# Полная изоляция!
+```
 
 ---
 
-## 🔧 Management Commands
+## ➕ ДОБАВЛЕНИЕ НОВОГО БОТА
 
-### **View All Running Bots**
-
-```bash
-docker ps
-
-# Should show:
-# - booking-bot-redis-shared (Redis)
-# - bot-client-001
-# - bot-client-002
-# - bot-client-003
-# ...
+### Шаг 1: Добавьте сервис в docker-compose.yml
+```yaml
+  # ✅ NEW BOT
+  bot-newbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: booking-bot-newbot
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN_NEWBOT}
+      ADMIN_IDS: ${ADMIN_IDS_NEWBOT}
+      CLIENT_ID: newbot
+      DB_TYPE: postgresql
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      PG_SCHEMA: newbot  # ✅ Уникальная schema
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_KEY_PREFIX: "newbot:"  # ✅ Уникальный prefix
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - booking-network
 ```
 
-### **View Bot Logs**
-
-```bash
-# Real-time logs
-docker logs bot-client-001 -f
-
-# Last 100 lines
-docker logs bot-client-001 --tail 100
-
-# Logs since 1 hour ago
-docker logs bot-client-001 --since 1h
+### Шаг 2: Добавьте в .env
+```env
+BOT_TOKEN_NEWBOT=your_new_bot_token
+ADMIN_IDS_NEWBOT=333333333,444444444
 ```
 
-### **Stop Bot**
-
+### Шаг 3: Запустите
 ```bash
-cd clients/client_001
-docker-compose stop
+docker-compose up -d bot-newbot
 
-# Or directly
-docker stop bot-client-001
+# Schema "newbot" будет создана автоматически!
 ```
 
-### **Restart Bot**
+---
 
+## 🛠️ УПРАВЛЕНИЕ
+
+### Запустить все боты
 ```bash
-cd clients/client_001
-docker-compose restart
-
-# Or directly
-docker restart bot-client-001
+docker-compose up -d
 ```
 
-### **Remove Bot (Suspend Client)**
-
+### Остановить все боты
 ```bash
-cd clients/client_001
 docker-compose down
-
-# Data is preserved in clients/client_001/data/
-# To restart: docker-compose up -d
 ```
 
-### **Completely Delete Client**
-
+### Перезапустить конкретный бот
 ```bash
-# Stop and remove container
-cd clients/client_001
-docker-compose down
+docker-compose restart bot-master
+docker-compose restart bot-sales
+```
 
-# Delete all data
-cd ../..
-rm -rf clients/client_001
+### Просмотр логов
+```bash
+# Все боты
+docker-compose logs -f
+
+# Конкретный бот
+docker-compose logs -f bot-master
+```
+
+### Обновить код
+```bash
+git pull
+docker-compose build
+docker-compose up -d
 ```
 
 ---
 
-## 🔍 Monitoring
+## 📊 МОНИТОРИНГ
 
-### **Check Redis Usage**
-
+### Статус контейнеров
 ```bash
-# Connect to Redis CLI
-docker exec -it booking-bot-redis-shared redis-cli
-
-# Inside Redis:
-INFO keyspace
-
-# Output:
-# db0:keys=5,expires=0   ← Client 1
-# db1:keys=3,expires=0   ← Client 2
-# db2:keys=7,expires=0   ← Client 3
+docker-compose ps
 ```
 
-### **Check Memory Usage**
-
+### Ресурсы
 ```bash
 docker stats
-
-# Shows CPU/RAM usage for each container
 ```
 
-### **Check Disk Usage**
-
+### PostgreSQL коннекты
 ```bash
-du -sh clients/*
+docker-compose exec postgres psql -U booking_user -d booking_saas -c \
+  "SELECT count(*) FROM pg_stat_activity WHERE datname='booking_saas';"
+```
 
-# Output:
-# 50M  clients/client_001
-# 45M  clients/client_002
-# 48M  clients/client_003
+### Redis память
+```bash
+docker-compose exec redis redis-cli INFO memory | grep used_memory_human
 ```
 
 ---
 
-## 🚫 Subscription Management
+## 🔒 БЕЗОПАСНОСТЬ
 
-### **Suspend Client (Non-Payment)**
+### Рекомендации:
 
+1. **Измените пароль PostgreSQL**
+   ```env
+   POSTGRES_PASSWORD=YourVerySecurePassword123!
+   ```
+
+2. **Не публикуйте .env**
+   ```bash
+   # Уже добавлено в .gitignore
+   .env
+   ```
+
+3. **Используйте Docker secrets** (для production)
+   - Docker Swarm secrets
+   - Kubernetes secrets
+
+4. **Настройте firewall**
+   ```bash
+   # Закрыть порты 5432 и 6379 извне
+   ```
+
+---
+
+## 💾 БЭКАПЫ
+
+### PostgreSQL бэкап
 ```bash
-# Stop bot container
-docker stop bot-client-001
+# Все schemas
+docker-compose exec postgres pg_dump -U booking_user booking_saas > backup.sql
 
-# Or
-cd clients/client_001
-docker-compose stop
-
-# Data is preserved, can be restarted after payment
+# Конкретная schema
+docker-compose exec postgres pg_dump -U booking_user -n master_bot booking_saas > master_bot_backup.sql
 ```
 
-### **Reactivate Client (After Payment)**
-
+### Восстановление
 ```bash
-# Restart bot container
-docker start bot-client-001
+docker-compose exec -T postgres psql -U booking_user booking_saas < backup.sql
+```
 
-# Or
-cd clients/client_001
-docker-compose start
+### Автоматические бэкапы
+Добавьте в cron:
+```bash
+0 2 * * * docker-compose exec postgres pg_dump -U booking_user booking_saas > /backups/booking_$(date +\%Y\%m\%d).sql
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## ✅ РЕЗЮМЕ
 
-### **Problem: "Network bot-network not found"**
+✅ **Master Bot и Sales Bot запускаются автоматически**  
+✅ **Полная изоляция данных**  
+✅ **Неограниченное количество ботов**  
+✅ **Production-ready**  
 
-```bash
-# Solution: Start Redis first (it creates the network)
-docker-compose -f docker-compose.redis.yml up -d
-```
-
-### **Problem: "Container name already in use"**
-
-```bash
-# Check running containers
-docker ps -a
-
-# Remove conflicting container
-docker rm -f container_name
-
-# Or use unique container name in docker-compose.yml
-```
-
-### **Problem: Bot not responding**
-
-```bash
-# 1. Check logs
-docker logs bot-client-001 --tail 50
-
-# 2. Check if Redis is running
-docker ps | grep redis
-
-# 3. Restart bot
-docker restart bot-client-001
-
-# 4. Rebuild if code changed
-cd clients/client_001
-docker-compose up -d --build
-```
-
-### **Problem: "Redis DB conflict"**
-
-Two clients using the same REDIS_DB number!
-
-```bash
-# Check which DBs are in use
-docker exec booking-bot-redis-shared redis-cli INFO keyspace
-
-# Update conflicting client's .env
-cd clients/client_002
-nano .env  # Change REDIS_DB to unused number
-docker-compose restart
-```
-
----
-
-## 📊 Resource Requirements
-
-### **Per Client:**
-- **RAM:** ~50-100MB
-- **Disk:** ~50MB (code) + ~10-50MB (data/logs)
-- **CPU:** <5% average
-
-### **Redis:**
-- **RAM:** ~50MB + 5MB per client
-- **Disk:** ~10-50MB (persistent data)
-
-### **Server Recommendations:**
-
-| Clients | CPU | RAM | Disk |
-|---------|-----|-----|------|
-| 1-5 | 2 cores | 2GB | 20GB |
-| 5-10 | 2 cores | 4GB | 40GB |
-| 10-16 | 4 cores | 8GB | 80GB |
-
----
-
-## 🔒 Security
-
-### **Redis Password (Optional)**
-
-Add password protection to Redis:
-
-```bash
-# Edit docker-compose.redis.yml
-command: >
-  redis-server
-  --requirepass YOUR_STRONG_PASSWORD
-  --appendonly yes
-
-# Update all clients' .env
-REDIS_PASSWORD=YOUR_STRONG_PASSWORD
-```
-
-### **Firewall**
-
-```bash
-# Only expose SSH and needed ports
-sudo ufw allow 22/tcp
-sudo ufw enable
-
-# Redis should NOT be exposed to internet (internal only)
-```
-
----
-
-## 🔄 Updates
-
-### **Update Bot Code**
-
-```bash
-# 1. Pull latest changes
-git pull origin main
-
-# 2. Update all clients
-for client in clients/*/; do
-    cd "$client"
-    docker-compose down
-    
-    # Copy new code
-    cp -r ../../{handlers,database,services,middlewares,utils,keyboards,main.py,config.py} .
-    
-    # Rebuild
-    docker-compose up -d --build
-    cd ../..
-done
-```
-
----
-
-## 📞 Support
-
-For issues or questions:
-- Check logs: `docker logs bot-client-XXX`
-- Review this documentation
-- Check [GitHub Issues](https://github.com/balzampsilo-sys/new12_02/issues)
-
----
-
-## 🎉 Quick Start Checklist
-
-- [ ] Install Docker
-- [ ] Clone repository
-- [ ] Start shared Redis: `docker-compose -f docker-compose.redis.yml up -d`
-- [ ] Deploy first client: `./scripts/deploy_client.sh client_001 "TOKEN" ADMIN_ID 0`
-- [ ] Test bot in Telegram
-- [ ] Monitor logs: `docker logs bot-client-001 -f`
-- [ ] Setup backup cron job (optional)
-
-**Ready to deploy more clients? Use `REDIS_DB` 1, 2, 3... up to 15!**
+🚀 **Проект готов к развертыванию!**
