@@ -3,8 +3,8 @@
 Master Bot - Автоматический деплой клиентов через Telegram
 
 Функции:
-- Прием заявок на новых клиентов
-- Автоматический деплой ботов
+- Прием заявок на новых клиентов (через Redis Queue)
+- Автоматический деплой ботов (через Deploy Worker)
 - Управление подписками
 - Интеграция с платежами
 - Статистика и мониторинг
@@ -33,7 +33,7 @@ project_root = Path(__file__).parent.parent.resolve()  # Абсолютный п
 sys.path.insert(0, str(project_root / "automation"))
 
 from subscription_manager import SubscriptionManager
-from deploy_manager import DeploymentManager
+from deploy_queue import DeployQueue
 
 # Настройка логирования
 logging.basicConfig(
@@ -64,7 +64,19 @@ logger.info(f"💾 Database path: {DB_PATH}")
 logger.info(f"📂 Project root: {PROJECT_ROOT}")
 
 sub_manager = SubscriptionManager(DB_PATH)
-deploy_manager = DeploymentManager(project_root=PROJECT_ROOT)
+
+# === DEPLOY QUEUE ===
+deploy_queue = DeployQueue(
+    redis_host=os.getenv("REDIS_HOST", "redis"),
+    redis_port=int(os.getenv("REDIS_PORT", "6379")),
+    redis_db=int(os.getenv("REDIS_DB", "0")),
+    key_prefix=os.getenv("REDIS_KEY_PREFIX", "master_bot:")
+)
+
+if deploy_queue.is_available():
+    logger.info("✅ Deploy Queue is ready")
+else:
+    logger.warning("⚠️ Deploy Queue not available - deploy functionality disabled")
 
 
 # === FSM STATES ===
@@ -140,6 +152,9 @@ async def cmd_start(message: types.Message):
         )
         return
     
+    queue_status = "✅ включена" if deploy_queue.is_available() else "⚠️ отключена"
+    queue_length = deploy_queue.get_queue_length() if deploy_queue.is_available() else 0
+    
     await message.answer(
         f"👋 Привет, {message.from_user.first_name}!\n\n"
         "🤖 **Мастер-бот для управления клиентами**\n\n"
@@ -148,6 +163,8 @@ async def cmd_start(message: types.Message):
         "💰 Принимать платежи и продлевать подписки\n"
         "📊 Показывать статистику\n"
         "👥 Управлять клиентами\n\n"
+        f"🔄 Очередь деплоя: {queue_status}\n"
+        f"📋 Задач в очереди: {queue_length}\n\n"
         "Выберите действие:",
         reply_markup=main_menu_keyboard(),
         parse_mode="Markdown"
@@ -166,6 +183,7 @@ async def cmd_help(message: types.Message):
 /start - Главное меню
 /stats - Статистика
 /clients - Список всех клиентов
+/queue - Статус очереди деплоя
 /dbpath - Показать путь к базе данных
 /help - Эта справка
 
@@ -174,7 +192,9 @@ async def cmd_help(message: types.Message):
 2. Отправьте токен бота (от @BotFather)
 3. Отправьте Telegram ID клиента (от @userinfobot)
 4. Введите название компании
-5. Подтвердите деплой
+5. Подтвердите - задача добавится в очередь
+6. Deploy Worker автоматически выполнит деплой
+7. Вы получите уведомление о результате
 
 **Прием платежа:**
 1. Нажмите "💰 Принять платеж"
@@ -183,16 +203,50 @@ async def cmd_help(message: types.Message):
 4. Введите сумму платежа (или используйте рекомендуемую)
 5. Подтвердите
 
-**Статистика:**
-- Всего клиентов
-- Активных подписок
-- Свободных Redis DB
-- Доход за месяц
+**Архитектура:**
+• Master Bot (Docker) - управление
+• Redis Queue - очередь задач
+• Deploy Worker (HOST) - деплой клиентов
 
 **Поддержка:** 
-https://github.com/balzampsilo-sys/new12_02
+https://github.com/balzampsilo-sys/new12_02/blob/main/QUEUE_SETUP.md
     """
     await message.answer(help_text, parse_mode="Markdown")
+
+
+@dp.message(Command("queue"))
+async def cmd_queue(message: types.Message):
+    """Показать статус очереди деплоя"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    if not deploy_queue.is_available():
+        await message.answer(
+            "❌ **ОЧЕРЕДЬ НЕДОСТУПНА**\n\n"
+            "Redis не подключен.\n"
+            "Проверьте что Redis запущен: `docker-compose ps redis`",
+            parse_mode="Markdown"
+        )
+        return
+    
+    queue_length = deploy_queue.get_queue_length()
+    
+    status_text = f"""
+🔄 **СТАТУС ОЧЕРЕДИ ДЕПЛОЯ**
+
+✅ Очередь активна
+📋 Задач в очереди: **{queue_length}**
+
+"""
+    
+    if queue_length > 0:
+        status_text += f"⚡ Deploy Worker обработает их в порядке поступления.\n"
+    else:
+        status_text += "🎉 Очередь пуста. Все задачи выполнены!\n"
+    
+    status_text += f"\n🔧 Redis: {deploy_queue.redis_host}:{deploy_queue.redis_port}/{deploy_queue.redis_db}"
+    
+    await message.answer(status_text, parse_mode="Markdown")
 
 
 @dp.message(Command("dbpath"))
@@ -277,6 +331,18 @@ async def cmd_clients(message: types.Message):
 @dp.message(F.text == "➕ Добавить клиента")
 async def start_add_client(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
+        return
+    
+    # Проверить доступность очереди
+    if not deploy_queue.is_available():
+        await message.answer(
+            "❌ **ОЧЕРЕДЬ ДЕПЛОЯ НЕДОСТУПНА**\n\n"
+            "Redis не подключен. Деплой временно невозможен.\n\n"
+            "Обратитесь к администратору.\n\n"
+            "Проверка: `docker-compose ps redis`",
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
         return
     
     await state.set_state(NewClientStates.waiting_for_token)
@@ -371,7 +437,8 @@ async def process_company_name(message: types.Message, state: FSMContext):
 🤖 Токен: `{data['bot_token'][:20]}...`
 👤 Admin ID: `{data['admin_telegram_id']}`
 
-⚡ После подтверждения бот будет автоматически развернут!
+⚡ После подтверждения задача будет добавлена в очередь деплоя!
+🤖 Deploy Worker автоматически выполнит развёртывание.
 
 Продолжить?
     """
@@ -397,81 +464,68 @@ async def process_confirmation(message: types.Message, state: FSMContext):
     
     data = await state.get_data()
     
-    processing_msg = await message.answer(
-        "⏳ **ДЕПЛОЙ ЗАПУЩЕН**\n\n"
-        "Это займет 2-3 минуты...\n"
-        "Не закрывайте бот!",
-        reply_markup=ReplyKeyboardRemove(),
-        parse_mode="Markdown"
-    )
+    # Проверить доступность очереди
+    if not deploy_queue.is_available():
+        await message.answer(
+            "❌ Redis недоступен. Обратитесь к техподдержке.",
+            reply_markup=main_menu_keyboard()
+        )
+        await state.clear()
+        return
     
+    # Добавить задачу в очередь
     try:
-        result = deploy_manager.deploy_client(
+        task_id = deploy_queue.add_deploy_task(
             bot_token=data['bot_token'],
             admin_telegram_id=data['admin_telegram_id'],
-            company_name=data['company_name']
+            company_name=data['company_name'],
+            created_by=message.from_user.id
         )
         
-        try:
-            await processing_msg.delete()
-        except:
-            pass
+        if not task_id:
+            await message.answer(
+                "❌ Не удалось добавить задачу. Попробуйте ещё раз.",
+                reply_markup=main_menu_keyboard()
+            )
+            await state.clear()
+            return
         
-        if result['success']:
-            success_text = f"""
-✅ **БОТ УСПЕШНО РАЗВЕРНУТ!**
+        # Уведомить о постановке в очередь
+        queue_length = deploy_queue.get_queue_length()
+        
+        success_text = f"""
+✅ **ЗАДАЧА ДОБАВЛЕНА В ОЧЕРЕДЬ**
 
 🏢 Компания: **{data['company_name']}**
-🆔 Client ID: `{result['client_id']}`
-💾 Redis DB: **{result['redis_db']}**
-🐳 Container: `{result['container_name']}`
-📅 Подписка до: **{(datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')}** (+30 дней)
+🆔 Task ID: `{task_id}`
+📋 Позиция в очереди: **{queue_length}**
 
-✅ Бот работает 24/7
-✅ Клиент может начать использовать
+⏳ Деплой начнётся в течение 1-2 минут.
+🔔 Вы получите уведомление о результате.
 
-📱 Клиент может найти бота по username в Telegram
-            """
-            
-            await message.answer(success_text, parse_mode="Markdown")
-            
-            try:
-                await bot.send_message(
-                    data['admin_telegram_id'],
-                    f"🎉 Ваш бот для '{data['company_name']}' успешно запущен!\n\n"
-                    f"Найдите своего бота в Telegram и нажмите /start"
-                )
-            except Exception as e:
-                logger.warning(f"Не удалось уведомить клиента: {e}")
-        else:
-            await message.answer(
-                f"❌ **ОШИБКА ДЕПЛОЯ**\n\n"
-                f"Причина: {result.get('error', 'Unknown')}\n\n"
-                f"Попробуйте еще раз или проверьте логи",
-                parse_mode="Markdown"
-            )
+💡 Проверить статус: /queue
+        """
+        
+        await message.answer(
+            success_text,
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
+        
+        logger.info(f"✅ Task {task_id} added to queue for {data['company_name']}")
     
     except Exception as e:
-        logger.error(f"Deploy error: {e}", exc_info=True)
-        
-        try:
-            await processing_msg.delete()
-        except:
-            pass
-        
+        logger.error(f"Error adding task to queue: {e}", exc_info=True)
         await message.answer(
             f"❌ **КРИТИЧЕСКАЯ ОШИБКА**\n\n"
             f"Ошибка: {str(e)}\n\n"
             f"Обратитесь к техподдержке",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
         )
     
     finally:
         await state.clear()
-        await message.answer(
-            "Выберите действие:",
-            reply_markup=main_menu_keyboard()
-        )
 
 
 # === ПЛАТЕЖИ ===
@@ -745,6 +799,13 @@ async def main():
         logger.info(f"📊 Loaded {stats['total_clients']} clients from database")
     else:
         logger.warning(f"⚠️ Database not found, will be created: {DB_PATH}")
+    
+    # Проверить очередь
+    if deploy_queue.is_available():
+        queue_length = deploy_queue.get_queue_length()
+        logger.info(f"✅ Deploy Queue ready. Tasks in queue: {queue_length}")
+    else:
+        logger.warning("⚠️ Deploy Queue not available. Deploy functionality disabled.")
     
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
