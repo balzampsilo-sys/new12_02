@@ -4,7 +4,12 @@
 # Bot Framework (latest stable)
 aiogram==3.21.0
 
-# Database
+# Database - PostgreSQL
+asyncpg==0.29.0
+SQLAlchemy==2.0.25
+alembic==1.13.1
+
+# Database - SQLite (legacy fallback)
 aiosqlite==0.20.0
 
 # Task Scheduling
@@ -32,5 +37,5 @@ aiogram-calendar==0.6.0
 # Data Validation (aiogram 3.21 supports pydantic <2.11)
 pydantic==2.10.5
 
-# YAML Parser (for i18n system) - ✅ NEW
+# YAML Parser (for i18n system)
 PyYAML==6.0.2
