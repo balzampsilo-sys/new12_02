@@ -4,7 +4,7 @@ Master Bot - Автоматический деплой клиентов чере
 
 Функции:
 - Прием заявок на новых клиентов
-- Автоматический деплой ботов
+- Автоматический деплойботов
 - Управление подписками
 - Интеграция с платежами
 - Статистика и мониторинг
@@ -75,6 +75,7 @@ class PaymentStates(StatesGroup):
     """Состояния для обработки платежа"""
     waiting_for_client_search = State()
     waiting_for_days = State()
+    waiting_for_amount = State()
     waiting_for_confirmation = State()
 
 
@@ -113,6 +114,15 @@ def payment_periods_keyboard():
         [KeyboardButton(text="90 дней (3 месяца)")],
         [KeyboardButton(text="180 дней (6 месяцев)")],
         [KeyboardButton(text="365 дней (1 год)")],
+        [KeyboardButton(text="🚫 Отмена")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def amount_keyboard(recommended: int):
+    """Клавиатура с рекомендуемой суммой"""
+    keyboard = [
+        [KeyboardButton(text=f"✅ {recommended} ₽ (рекомендуем)")],
         [KeyboardButton(text="🚫 Отмена")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -175,7 +185,8 @@ async def cmd_help(message: types.Message):
 1. Нажмите "💰 Принять платеж"
 2. Введите название компании для поиска
 3. Выберите период продления
-4. Подтвердите
+4. Введите сумму платежа (или используйте рекомендуемую)
+5. Подтвердите
 
 **Статистика:**
 - Всего клиентов
@@ -579,6 +590,68 @@ async def process_payment_days(message: types.Message, state: FSMContext):
         return
     
     await state.update_data(days=days)
+    
+    # Рекомендуемая сумма: 10₽/день (300₽ за месяц)
+    recommended_amount = days * 10
+    
+    amount_text = f"""
+💰 **ВВОД СУММЫ**
+
+📅 Период: **{days} дней**
+💡 Рекомендуемая сумма: **{recommended_amount} ₽** (10₽/день)
+
+Введите сумму платежа в рублях:
+(или нажмите кнопку для рекомендуемой суммы)
+    """
+    
+    await state.set_state(PaymentStates.waiting_for_amount)
+    await message.answer(
+        amount_text,
+        reply_markup=amount_keyboard(recommended_amount),
+        parse_mode="Markdown"
+    )
+
+
+@dp.message(PaymentStates.waiting_for_amount)
+async def process_payment_amount(message: types.Message, state: FSMContext):
+    """Обработка ввода суммы"""
+    if message.text == "🚫 Отмена":
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu_keyboard())
+        return
+    
+    # Парсинг суммы
+    amount_text = message.text.strip()
+    
+    # Если нажата кнопка с рекомендуемой суммой
+    if amount_text.startswith("✅"):
+        # Извлечь число из текста "✅ 300 ₽ (рекомендуем)"
+        import re
+        match = re.search(r'(\d+)', amount_text)
+        if match:
+            amount = int(match.group(1))
+        else:
+            await message.answer("❌ Ошибка парсинга суммы")
+            return
+    else:
+        # Попытка распарсить введенное число
+        try:
+            amount = int(amount_text.replace(" ", "").replace("₽", ""))
+        except ValueError:
+            await message.answer(
+                "❌ Неверный формат суммы\n\n"
+                "Введите число (например: 300 или 1500):"
+            )
+            return
+    
+    if amount <= 0:
+        await message.answer(
+            "❌ Сумма должна быть больше нуля\n\n"
+            "Введите корректную сумму:"
+        )
+        return
+    
+    await state.update_data(amount=amount)
     data = await state.get_data()
     
     # Подтверждение
@@ -586,8 +659,8 @@ async def process_payment_days(message: types.Message, state: FSMContext):
 📋 **ПОДТВЕРЖДЕНИЕ ПЛАТЕЖА**
 
 🏢 Компания: **{data['company_name']}**
-📅 Период: **{days} дней**
-💰 Сумма: **{days * 50:.0f} ₽** (50₽/день)
+📅 Период: **{data['days']} дней**
+💰 Сумма: **{amount} ₽**
 
 Подтвердить продление?
     """
@@ -622,13 +695,12 @@ async def process_payment_confirmation(message: types.Message, state: FSMContext
         )
         
         if result:
-            amount = data['days'] * 50
             success_text = f"""
 ✅ **ПЛАТЕЖ ПРИНЯТ**
 
 🏢 Компания: **{data['company_name']}**
 📅 Продлено на: **{data['days']} дней**
-💰 Сумма: **{amount:.0f} ₽**
+💰 Сумма: **{data['amount']} ₽**
 
 ✅ Подписка успешно продлена!
             """
