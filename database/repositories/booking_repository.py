@@ -1,44 +1,47 @@
-"""Репозиторий для работы с бронированиями"""
+"""Репозиторий для работы с бронированиями
+
+✅ FIXED: Заменен aiosqlite на db_adapter для PostgreSQL поддержки
+"""
 
 import calendar
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
 
-import aiosqlite
-
 from config import (
     CANCELLATION_HOURS,
-    DATABASE_PATH,
     MAX_BOOKINGS_PER_USER,
     TIMEZONE,
     WORK_HOURS_END,
     WORK_HOURS_START,
 )
-from database.base_repository import BaseRepository
+from database.db_adapter import db_adapter  # ✅ NEW
 from utils.helpers import now_local
 
 
-class BookingRepository(BaseRepository):
-    """Репозиторий для управления бронированиями"""
+class BookingRepository:
+    """Репозиторий для управления бронированиями
+    
+    ✅ FIXED: Использует db_adapter вместо aiosqlite
+    """
 
     @staticmethod
     async def is_slot_free(date_str: str, time_str: str) -> bool:
         """Проверить свободен ли слот (включая блокировки)"""
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                # Проверяем бронирование
-                booking_exists = await BookingRepository._exists(
-                    "bookings", "date=? AND time=?", (date_str, time_str)
-                )
-                # Проверяем блокировку
-                async with db.execute(
-                    "SELECT 1 FROM blocked_slots WHERE date=? AND time=?",
-                    (date_str, time_str),
-                ) as cursor:
-                    blocked_exists = await cursor.fetchone() is not None
+            # Проверяем бронирование
+            booking_exists = await db_adapter.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM bookings WHERE date=$1 AND time=$2)",
+                date_str, time_str
+            )
+            
+            # Проверяем блокировку
+            blocked_exists = await db_adapter.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM blocked_slots WHERE date=$1 AND time=$2)",
+                date_str, time_str
+            )
 
-                return not booking_exists and not blocked_exists
+            return not booking_exists and not blocked_exists
         except Exception as e:
             logging.error(f"Error checking slot {date_str} {time_str}: {e}")
             return False
@@ -53,27 +56,24 @@ class BookingRepository(BaseRepository):
         """
         occupied = []
         try:
-            # ✅ КРИТИЧНО: Получаем time + duration из JOIN с services
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                # Забронированные с duration из services
-                async with db.execute(
-                    """SELECT b.time, COALESCE(s.duration_minutes, 60) as duration
-                    FROM bookings b
-                    LEFT JOIN services s ON b.service_id = s.id
-                    WHERE b.date = ?""",
-                    (date_str,),
-                ) as cursor:
-                    bookings = await cursor.fetchall()
-                    if bookings:
-                        occupied.extend((time, duration) for time, duration in bookings)
+            # Забронированные с duration из services
+            bookings = await db_adapter.fetch(
+                """SELECT b.time, COALESCE(s.duration_minutes, 60) as duration
+                FROM bookings b
+                LEFT JOIN services s ON b.service_id = s.id
+                WHERE b.date = $1""",
+                date_str
+            )
+            if bookings:
+                occupied.extend((row["time"], row["duration"]) for row in bookings)
 
-                # Заблокированные (длительность 60 мин по умолчанию)
-                async with db.execute(
-                    "SELECT time FROM blocked_slots WHERE date = ?", (date_str,)
-                ) as cursor:
-                    blocked = await cursor.fetchall()
-                    if blocked:
-                        occupied.extend((time, 60) for (time,) in blocked)
+            # Заблокированные (длительность 60 мин по умолчанию)
+            blocked = await db_adapter.fetch(
+                "SELECT time FROM blocked_slots WHERE date = $1",
+                date_str
+            )
+            if blocked:
+                occupied.extend((row["time"], 60) for row in blocked)
 
         except Exception as e:
             logging.error(f"Error getting occupied slots for {date_str}: {e}")
@@ -92,25 +92,25 @@ class BookingRepository(BaseRepository):
             total_slots = WORK_HOURS_END - WORK_HOURS_START
 
             # Объединенный запрос UNION ALL
-            rows = await BookingRepository._execute_query(
+            rows = await db_adapter.fetch(
                 """SELECT date, SUM(cnt) as total_count FROM (
                     SELECT date, COUNT(*) as cnt FROM bookings
-                    WHERE date >= ? AND date <= ? GROUP BY date
+                    WHERE date >= $1 AND date <= $2 GROUP BY date
                     UNION ALL
                     SELECT date, COUNT(*) as cnt FROM blocked_slots
-                    WHERE date >= ? AND date <= ? GROUP BY date
+                    WHERE date >= $3 AND date <= $4 GROUP BY date
                 ) GROUP BY date""",
-                (
-                    first_day.isoformat(),
-                    last_day.isoformat(),
-                    first_day.isoformat(),
-                    last_day.isoformat(),
-                ),
-                fetch_all=True,
+                first_day.isoformat(),
+                last_day.isoformat(),
+                first_day.isoformat(),
+                last_day.isoformat(),
             )
 
             if rows:
-                for date_str, total_count in rows:
+                for row in rows:
+                    date_str = row["date"]
+                    total_count = row["total_count"]
+                    
                     if total_count == 0:
                         statuses[date_str] = "🟢"
                     elif total_count < total_slots:
@@ -141,7 +141,7 @@ class BookingRepository(BaseRepository):
                 - created_at: str
         """
         try:
-            rows = await BookingRepository._execute_query(
+            rows = await db_adapter.fetch(
                 """SELECT
                     b.user_id,
                     b.username,
@@ -152,10 +152,9 @@ class BookingRepository(BaseRepository):
                     b.created_at
                 FROM bookings b
                 LEFT JOIN services s ON b.service_id = s.id
-                WHERE b.date = ?
+                WHERE b.date = $1
                 ORDER BY b.time""",
-                (date_str,),
-                fetch_all=True,
+                date_str,
             )
 
             if not rows:
@@ -166,13 +165,13 @@ class BookingRepository(BaseRepository):
             for row in rows:
                 bookings.append(
                     {
-                        "user_id": row[0],
-                        "username": row[1] or f"ID{row[0]}",
-                        "time": row[2],
-                        "service_id": row[3],
-                        "service_name": row[4],
-                        "duration_minutes": row[5],
-                        "created_at": row[6],
+                        "user_id": row["user_id"],
+                        "username": row["username"] or f"ID{row['user_id']}",
+                        "time": row["time"],
+                        "service_id": row["service_id"],
+                        "service_name": row["service_name"],
+                        "duration_minutes": row["duration_minutes"],
+                        "created_at": str(row["created_at"]),
                     }
                 )
 
@@ -202,8 +201,7 @@ class BookingRepository(BaseRepository):
         try:
             now = now_local()
 
-            # ✅ P2: ДОБАВЛЕН JOIN с services для получения полной информации
-            bookings = await BookingRepository._execute_query(
+            rows = await db_adapter.fetch(
                 """SELECT
                     b.id,
                     b.date,
@@ -216,25 +214,36 @@ class BookingRepository(BaseRepository):
                     COALESCE(s.price, '—') as price
                 FROM bookings b
                 LEFT JOIN services s ON b.service_id = s.id
-                WHERE b.user_id = ?
+                WHERE b.user_id = $1
                 ORDER BY b.date, b.time""",
-                (user_id,),
-                fetch_all=True,
+                user_id,
             )
 
-            if not bookings:
+            if not rows:
                 return []
 
             # Фильтруем только будущие
             future_bookings = []
-            for booking in bookings:
-                booking_id, date_str, time_str = booking[0], booking[1], booking[2]
+            for row in rows:
+                date_str = row["date"]
+                time_str = row["time"]
 
                 booking_dt_naive = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
                 booking_dt = TIMEZONE.localize(booking_dt_naive)
 
                 if booking_dt >= now:
-                    future_bookings.append(booking)
+                    # Конвертируем в tuple для совместимости
+                    future_bookings.append((
+                        row["id"],
+                        row["date"],
+                        row["time"],
+                        row["username"],
+                        str(row["created_at"]),
+                        row["service_id"],
+                        row["service_name"],
+                        row["duration_minutes"],
+                        row["price"],
+                    ))
 
             return future_bookings
         except Exception as e:
@@ -268,30 +277,43 @@ class BookingRepository(BaseRepository):
     @staticmethod
     async def get_booking_by_id(booking_id: int, user_id: int) -> Optional[Tuple[str, str, str]]:
         """Получить запись по ID"""
-        return await BookingRepository._execute_query(
-            "SELECT date, time, username FROM bookings WHERE id=? AND user_id=?",
-            (booking_id, user_id),
-            fetch_one=True,
+        row = await db_adapter.fetchrow(
+            "SELECT date, time, username FROM bookings WHERE id=$1 AND user_id=$2",
+            booking_id, user_id
         )
+        if row:
+            return (row["date"], row["time"], row["username"])
+        return None
+
+    @staticmethod
+    async def get_booking_service_id(booking_id: int) -> Optional[int]:
+        """Получить service_id из бронирования"""
+        try:
+            return await db_adapter.fetchval(
+                "SELECT service_id FROM bookings WHERE id=$1",
+                booking_id
+            )
+        except Exception as e:
+            logging.error(f"Error getting booking service_id: {e}")
+            return None
 
     @staticmethod
     async def delete_booking(booking_id: int, user_id: int) -> bool:
         """Удалить запись"""
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                cursor = await db.execute(
-                    "DELETE FROM bookings WHERE id=? AND user_id=?",
-                    (booking_id, user_id),
-                )
-                await db.commit()
-                deleted = cursor.rowcount > 0
+            result = await db_adapter.execute(
+                "DELETE FROM bookings WHERE id=$1 AND user_id=$2",
+                booking_id, user_id
+            )
+            # PostgreSQL возвращает "DELETE N"
+            deleted = "DELETE 1" in result or "DELETE 0" not in result
 
-                if deleted:
-                    logging.info(f"Booking {booking_id} deleted by user {user_id}")
-                else:
-                    logging.warning(f"Booking {booking_id} not found for user {user_id}")
+            if deleted:
+                logging.info(f"Booking {booking_id} deleted by user {user_id}")
+            else:
+                logging.warning(f"Booking {booking_id} not found for user {user_id}")
 
-                return deleted
+            return deleted
         except Exception as e:
             logging.error(f"Error deleting booking {booking_id}: {e}")
             return False
@@ -300,12 +322,14 @@ class BookingRepository(BaseRepository):
     async def cleanup_old_bookings(before_date: str) -> int:
         """Удалить старые записи"""
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                cursor = await db.execute("DELETE FROM bookings WHERE date < ?", (before_date,))
-                await db.commit()
-                deleted_count = cursor.rowcount
-                logging.info(f"Cleaned up {deleted_count} old bookings")
-                return deleted_count
+            result = await db_adapter.execute(
+                "DELETE FROM bookings WHERE date < $1",
+                before_date
+            )
+            # Парсим "DELETE N"
+            deleted_count = int(result.split()[-1]) if result else 0
+            logging.info(f"Cleaned up {deleted_count} old bookings")
+            return deleted_count
         except Exception as e:
             logging.error(f"Error cleaning up old bookings: {e}")
             return 0
@@ -322,10 +346,8 @@ class BookingRepository(BaseRepository):
                 "%Y-%m-%d"
             )
 
-            # ✅ P2: ДОБАВЛЕНА длительность и цена
-            return (
-                await BookingRepository._execute_query(
-                    """SELECT
+            rows = await db_adapter.fetch(
+                """SELECT
                     b.date,
                     b.time,
                     b.username,
@@ -334,13 +356,18 @@ class BookingRepository(BaseRepository):
                     COALESCE(s.price, '—') as price
                 FROM bookings b
                 LEFT JOIN services s ON b.service_id = s.id
-                WHERE b.date >= ? AND b.date <= ?
+                WHERE b.date >= $1 AND b.date <= $2
                 ORDER BY b.date, b.time""",
-                    (start_date, end_date),
-                    fetch_all=True,
-                )
-                or []
+                start_date, end_date
             )
+            
+            if not rows:
+                return []
+            
+            # Конвертируем в tuples
+            return [(row["date"], row["time"], row["username"], 
+                     row["service_name"], row["duration"], row["price"]) 
+                    for row in rows]
         except Exception as e:
             logging.error(f"Error getting week schedule: {e}")
             return []
@@ -349,19 +376,18 @@ class BookingRepository(BaseRepository):
     async def block_slot(date_str: str, time_str: str, admin_id: int, reason: str = None) -> bool:
         """Заблокировать слот"""
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                await db.execute(
-                    "INSERT INTO blocked_slots (date, time, reason, blocked_by, blocked_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (date_str, time_str, reason, admin_id, now_local().isoformat()),
-                )
-                await db.commit()
-                logging.info(f"Slot {date_str} {time_str} blocked by admin {admin_id}")
-                return True
-        except aiosqlite.IntegrityError:
-            logging.warning(f"Slot {date_str} {time_str} already blocked or booked")
-            return False
+            await db_adapter.execute(
+                "INSERT INTO blocked_slots (date, time, reason, blocked_by, blocked_at) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                date_str, time_str, reason, admin_id, now_local()
+            )
+            logging.info(f"Slot {date_str} {time_str} blocked by admin {admin_id}")
+            return True
         except Exception as e:
+            # PostgreSQL unique constraint violation
+            if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+                logging.warning(f"Slot {date_str} {time_str} already blocked or booked")
+                return False
             logging.error(f"Error blocking slot {date_str} {time_str}: {e}")
             return False
 
@@ -391,56 +417,56 @@ class BookingRepository(BaseRepository):
             }]
         """
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                # Проверяем существующие записи
-                async with db.execute(
-                    "SELECT user_id, username FROM bookings WHERE date=? AND time=?",
-                    (date_str, time_str),
-                ) as cursor:
-                    existing_bookings = await cursor.fetchall()
+            async with db_adapter.acquire() as conn:
+                async with conn.transaction():
+                    # Проверяем существующие записи
+                    existing_bookings = await conn.fetch(
+                        "SELECT user_id, username FROM bookings WHERE date=$1 AND time=$2",
+                        date_str, time_str
+                    )
 
-                cancelled_users = []
+                    cancelled_users = []
 
-                # Если есть записи - удаляем их
-                if existing_bookings:
-                    for user_id, username in existing_bookings:
-                        cancelled_users.append(
-                            {
-                                "user_id": user_id,
-                                "username": username or f"ID{user_id}",
-                                "date": date_str,
-                                "time": time_str,
-                                "reason": reason,
-                            }
+                    # Если есть записи - удаляем их
+                    if existing_bookings:
+                        for row in existing_bookings:
+                            cancelled_users.append(
+                                {
+                                    "user_id": row["user_id"],
+                                    "username": row["username"] or f"ID{row['user_id']}",
+                                    "date": date_str,
+                                    "time": time_str,
+                                    "reason": reason,
+                                }
+                            )
+
+                        # Удаляем бронь
+                        await conn.execute(
+                            "DELETE FROM bookings WHERE date=$1 AND time=$2",
+                            date_str, time_str
+                        )
+                        logging.info(
+                            f"Cancelled {len(cancelled_users)} booking(s) for slot {date_str} {time_str}"
                         )
 
-                    # Удаляем бронь
-                    await db.execute(
-                        "DELETE FROM bookings WHERE date=? AND time=?", (date_str, time_str)
+                    # Блокируем слот
+                    await conn.execute(
+                        "INSERT INTO blocked_slots (date, time, reason, blocked_by, blocked_at) "
+                        "VALUES ($1, $2, $3, $4, $5)",
+                        date_str, time_str, reason, admin_id, now_local()
                     )
+
                     logging.info(
-                        f"Cancelled {len(cancelled_users)} booking(s) for slot {date_str} {time_str}"
+                        f"Slot {date_str} {time_str} blocked by admin {admin_id} "
+                        f"with {len(cancelled_users)} cancellations"
                     )
 
-                # Блокируем слот
-                await db.execute(
-                    "INSERT INTO blocked_slots (date, time, reason, blocked_by, blocked_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (date_str, time_str, reason, admin_id, now_local().isoformat()),
-                )
-                await db.commit()
+                    return True, cancelled_users
 
-                logging.info(
-                    f"Slot {date_str} {time_str} blocked by admin {admin_id} "
-                    f"with {len(cancelled_users)} cancellations"
-                )
-
-                return True, cancelled_users
-
-        except aiosqlite.IntegrityError:
-            logging.warning(f"Slot {date_str} {time_str} already blocked")
-            return False, []
         except Exception as e:
+            if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+                logging.warning(f"Slot {date_str} {time_str} already blocked")
+                return False, []
             logging.error(f"Error blocking slot with notification {date_str} {time_str}: {e}")
             return False, []
 
@@ -448,16 +474,14 @@ class BookingRepository(BaseRepository):
     async def unblock_slot(date_str: str, time_str: str) -> bool:
         """Разблокировать слот"""
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                cursor = await db.execute(
-                    "DELETE FROM blocked_slots WHERE date = ? AND time = ?",
-                    (date_str, time_str),
-                )
-                await db.commit()
-                deleted = cursor.rowcount > 0
-                if deleted:
-                    logging.info(f"Slot {date_str} {time_str} unblocked")
-                return deleted
+            result = await db_adapter.execute(
+                "DELETE FROM blocked_slots WHERE date = $1 AND time = $2",
+                date_str, time_str
+            )
+            deleted = "DELETE 1" in result
+            if deleted:
+                logging.info(f"Slot {date_str} {time_str} unblocked")
+            return deleted
         except Exception as e:
             logging.error(f"Error unblocking slot {date_str} {time_str}: {e}")
             return False
@@ -465,14 +489,24 @@ class BookingRepository(BaseRepository):
     @staticmethod
     async def get_blocked_slots(date_str: str = None) -> List[Tuple]:
         """Получить заблокированные слоты"""
-        if date_str:
-            query = "SELECT date, time, reason FROM blocked_slots WHERE date = ? ORDER BY time"
-            params = (date_str,)
-        else:
-            query = "SELECT date, time, reason FROM blocked_slots ORDER BY date, time"
-            params = ()
-
-        return await BookingRepository._execute_query(query, params, fetch_all=True) or []
+        try:
+            if date_str:
+                rows = await db_adapter.fetch(
+                    "SELECT date, time, reason FROM blocked_slots WHERE date = $1 ORDER BY time",
+                    date_str
+                )
+            else:
+                rows = await db_adapter.fetch(
+                    "SELECT date, time, reason FROM blocked_slots ORDER BY date, time"
+                )
+            
+            if not rows:
+                return []
+            
+            return [(row["date"], row["time"], row["reason"]) for row in rows]
+        except Exception as e:
+            logging.error(f"Error getting blocked slots: {e}")
+            return []
 
     @staticmethod
     async def mass_update_service(date_str: str, new_service_id: int) -> int:
@@ -486,20 +520,19 @@ class BookingRepository(BaseRepository):
             Количество обновленных записей
         """
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                cursor = await db.execute(
-                    "UPDATE bookings SET service_id = ? WHERE date = ?",
-                    (new_service_id, date_str),
-                )
-                await db.commit()
-                updated_count = cursor.rowcount
+            result = await db_adapter.execute(
+                "UPDATE bookings SET service_id = $1 WHERE date = $2",
+                new_service_id, date_str
+            )
+            # Парсим "UPDATE N"
+            updated_count = int(result.split()[-1]) if result else 0
 
-                logging.info(
-                    f"Mass service update: {updated_count} bookings on {date_str} "
-                    f"changed to service_id={new_service_id}"
-                )
+            logging.info(
+                f"Mass service update: {updated_count} bookings on {date_str} "
+                f"changed to service_id={new_service_id}"
+            )
 
-                return updated_count
+            return updated_count
         except Exception as e:
             logging.error(f"Error in mass_update_service for {date_str}: {e}")
             return 0
