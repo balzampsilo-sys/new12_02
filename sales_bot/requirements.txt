@@ -2,5 +2,5 @@ aiogram>=3.4.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 aiohttp>=3.9.0
-# yookassa>=3.0.0  # Раскомментировать для ЮKassa
-# stripe>=7.0.0     # Раскомментировать для Stripe
+yookassa>=3.0.0
+aiolimiter>=1.1.0
