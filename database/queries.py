@@ -1,11 +1,11 @@
-"""Фасад для работы с базой данных через репозитории"""
+"""Фасад для работы с базой данных через репозитории
+
+✅ FIXED: Используется SchemaManager вместо aiosqlite
+"""
 
 import logging
 from typing import Dict, List, Optional, Tuple
 
-import aiosqlite
-
-from config import DATABASE_PATH
 from database.repositories import (
     AdminRepository,
     AnalyticsRepository,
@@ -15,6 +15,7 @@ from database.repositories import (
 )
 from database.repositories.calendar_repository import CalendarRepository
 from database.repositories.settings_repository import SettingsRepository
+from database.schema_manager import SchemaManager  # ✅ NEW
 
 # Реэкспортируем ClientStats для обратной совместимости
 __all__ = ["Database", "ClientStats"]
@@ -24,13 +25,50 @@ class Database:
     """
     Фасад для работы с базой данных.
     Делегирует вызовы специализированным репозиториям.
+    
+    ✅ FIXED: Используется SchemaManager для инициализации
     """
 
     # === ИНИЦИАЛИЗАЦИЯ ===
 
     @staticmethod
     async def init_db():
-        """Инициализация БД с таблицами и индексами"""
+        """
+        Инициализация БД с таблицами и индексами
+        
+        ✅ FIXED: Используется SchemaManager для PostgreSQL
+        ✅ FIXED: Автоматическое создание schema для клиента
+        """
+        from config import DB_TYPE, PG_SCHEMA
+        
+        if DB_TYPE == "postgresql":
+            # ✅ NEW: Использовать SchemaManager
+            await SchemaManager.init_schema(PG_SCHEMA)
+            logging.info(
+                f"✅ Database initialized with PostgreSQL\n"
+                f"   • Schema: {PG_SCHEMA}\n"
+                f"   • All tables created with indexes"
+            )
+        else:
+            # ❌ Legacy SQLite fallback
+            logging.warning("⚠️ Using SQLite (legacy mode)")
+            await Database._init_sqlite()
+
+        # Инициализация дополнительных таблиц
+        await SettingsRepository.init_settings_table()
+        await CalendarRepository.init_calendar_tables()
+        logging.info("✅ All database tables initialized")
+
+    @staticmethod
+    async def _init_sqlite():
+        """
+        Legacy SQLite инициализация (только для совместимости)
+        
+        ⚠️ DEPRECATED: Используйте PostgreSQL для production
+        """
+        import aiosqlite
+        from config import DATABASE_PATH
+        
         async with aiosqlite.connect(DATABASE_PATH) as db:
             # Таблицы
             await db.execute(
@@ -73,7 +111,6 @@ class Database:
                 (user_id INTEGER PRIMARY KEY, message_id INTEGER, updated_at TEXT)"""
             )
 
-            # Sprint 3: Таблица администраторов
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS admins
                 (user_id INTEGER PRIMARY KEY,
@@ -83,7 +120,6 @@ class Database:
                 role TEXT DEFAULT 'moderator')"""
             )
 
-            # Low Priority: Audit log
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,8 +131,6 @@ class Database:
             )"""
             )
 
-            # P0: История изменений записей
-            # ✅ ИСПРАВЛЕНО: Убраны CHECK constraints для совместимости
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS booking_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,46 +149,7 @@ class Database:
             )"""
             )
 
-            # P2: Миграция - добавляем service_id если его еще нет
-            try:
-                async with db.execute("PRAGMA table_info(bookings)") as cursor:
-                    columns = await cursor.fetchall()
-                    column_names = [col[1] for col in columns]
-
-                    if "service_id" not in column_names:
-                        logging.info("🔄 Добавляем service_id в существующую таблицу bookings...")
-                        await db.execute(
-                            "ALTER TABLE bookings ADD COLUMN service_id INTEGER DEFAULT 1"
-                        )
-                        logging.info("✅ service_id добавлен")
-
-                    if "duration_minutes" not in column_names:
-                        logging.info(
-                            "🔄 Добавляем duration_minutes в существующую таблицу bookings..."
-                        )
-                        await db.execute(
-                            "ALTER TABLE bookings ADD COLUMN duration_minutes INTEGER DEFAULT 60"
-                        )
-                        logging.info("✅ duration_minutes добавлен")
-            except Exception as e:
-                logging.warning(f"⚠️ Не удалось добавить колонки: {e}")
-
-            # Low Priority: Добавляем role если его нет
-            try:
-                async with db.execute("PRAGMA table_info(admins)") as cursor:
-                    columns = await cursor.fetchall()
-                    column_names = [col[1] for col in columns]
-
-                    if "role" not in column_names:
-                        logging.info("🔄 Добавляем role в существующую таблицу admins...")
-                        await db.execute(
-                            "ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'moderator'"
-                        )
-                        logging.info("✅ role добавлен")
-            except Exception as e:
-                logging.warning(f"⚠️ Не удалось добавить role: {e}")
-
-            # Индексы для производительности
+            # Индексы
             await db.execute(
                 """CREATE INDEX IF NOT EXISTS idx_bookings_date
                 ON bookings(date, time)"""
@@ -204,8 +199,6 @@ class Database:
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)"
             )
-
-            # P0: Индексы для booking_history
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_booking_history_booking ON booking_history(booking_id)"
             )
@@ -217,12 +210,7 @@ class Database:
             )
 
             await db.commit()
-            logging.info("Database initialized with indexes and race condition protection")
-
-        # Инициализация дополнительных таблиц
-        await SettingsRepository.init_settings_table()
-        await CalendarRepository.init_calendar_tables()
-        logging.info("✅ All database tables initialized")
+            logging.info("SQLite database initialized (legacy)")
 
     # === БРОНИРОВАНИЯ (делегирование в BookingRepository) ===
 
@@ -269,16 +257,7 @@ class Database:
         Returns:
             service_id или None если не найдено
         """
-        try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                async with db.execute(
-                    "SELECT service_id FROM bookings WHERE id=?", (booking_id,)
-                ) as cursor:
-                    result = await cursor.fetchone()
-                    return result[0] if result else None
-        except Exception as e:
-            logging.error(f"Error getting booking service_id: {e}")
-            return None
+        return await BookingRepository.get_booking_service_id(booking_id)
 
     @staticmethod
     async def delete_booking(booking_id: int, user_id: int) -> bool:
