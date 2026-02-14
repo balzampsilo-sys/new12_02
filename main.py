@@ -9,7 +9,6 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.storage.redis import RedisStorage, DefaultKeyBuilder
 from aiogram.types import ErrorEvent
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -19,6 +18,7 @@ from config import (
     BACKUP_INTERVAL_HOURS,
     BACKUP_RETENTION_DAYS,
     BOT_TOKEN,
+    CLIENT_ID,
     DATABASE_PATH,
     DB_TYPE,
     RATE_LIMIT_CALLBACK,
@@ -26,6 +26,7 @@ from config import (
     REDIS_DB,
     REDIS_ENABLED,
     REDIS_HOST,
+    REDIS_KEY_PREFIX,
     REDIS_PASSWORD,
     REDIS_PORT,
     SENTRY_DSN,
@@ -56,6 +57,7 @@ from handlers import (
 from handlers.admin import text_editor  # ✅ NEW: Text editor for i18n
 from middlewares.message_cleanup import MessageCleanupMiddleware
 from middlewares.rate_limit import RateLimitMiddleware
+from middlewares.redis_storage_with_prefix import PrefixedRedisStorage  # ✅ NEW: Prefixed storage
 from services.booking_service import BookingService
 from services.notification_service import NotificationService
 from services.reminder_service import ReminderService
@@ -382,9 +384,9 @@ async def _reminder_1h_async(bot: Bot):
 
 
 async def get_storage():
-    """Создает FSM storage: Redis если доступен, иначе MemoryStorage
+    """Создает FSM storage: PrefixedRedisStorage если Redis доступен, иначе MemoryStorage
     
-    ✅ ИСПРАВЛЕНО: Возвращаем также redis_client для правильного shutdown
+    ✅ NEW: Используется PrefixedRedisStorage для неограниченного кол-ва клиентов
     
     Returns:
         Tuple[storage, redis_client or None]
@@ -400,12 +402,17 @@ async def get_storage():
             redis_client = aioredis.from_url(redis_url, decode_responses=True)
             await redis_client.ping()
             
-            storage = RedisStorage(
+            # ✅ NEW: Используем PrefixedRedisStorage вместо стандартного RedisStorage
+            storage = PrefixedRedisStorage(
                 redis=redis_client,
-                key_builder=DefaultKeyBuilder(with_destiny=True)
+                key_prefix=REDIS_KEY_PREFIX
             )
             
-            logger.info(f"Using RedisStorage: {REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
+            logger.info(
+                f"✅ Using PrefixedRedisStorage: {REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}\n"
+                f"   • Client: {CLIENT_ID}\n"
+                f"   • Prefix: {REDIS_KEY_PREFIX} (unlimited scaling)"
+            )
             return storage, redis_client
             
         except ImportError:
@@ -513,7 +520,7 @@ async def start_bot():
     logger.info(
         "✅ P0 Fixes Applied: Event Loop (asyncio.get_running_loop) + "
         "2h Reminders + Transaction Timeouts + Redis Leak + Migrations v008-v009 + "
-        "PostgreSQL Migration with Connection Pooling"
+        "PostgreSQL Migration with Connection Pooling + PrefixedRedisStorage (Unlimited Clients)"
     )
     
     if SENTRY_ENABLED:
@@ -525,9 +532,9 @@ async def start_bot():
         logger.info("Shutting down bot...")
         
         # ✅ CRITICAL: Правильный shutdown sequence
-        if isinstance(storage, RedisStorage):
+        if isinstance(storage, PrefixedRedisStorage):
             await storage.close()
-            logger.info("Redis storage closed")
+            logger.info("Prefixed Redis storage closed")
             
             if redis_client:
                 await redis_client.close()
