@@ -38,3 +38,6 @@ pydantic==2.10.5
 
 # Caching
 cachetools==5.5.0
+
+# HTTP requests (for sales_bot)
+requests==2.32.3
