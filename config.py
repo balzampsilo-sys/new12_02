@@ -128,7 +128,23 @@ WORK_HOURS_START = int(os.getenv("WORK_HOURS_START", "9"))
 WORK_HOURS_END = int(os.getenv("WORK_HOURS_END", "18"))
 
 # === DATABASE ===
+# ✅ NEW: Database type selection
+DB_TYPE = os.getenv("DB_TYPE", "sqlite").lower()  # "postgresql" or "sqlite"
+
+# SQLite configuration (legacy)
 DATABASE_PATH = os.getenv("DATABASE_PATH", "bookings.db")
+
+# ✅ NEW: PostgreSQL configuration
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://booking_user:password@localhost:5432/booking_db"
+)
+
+# ✅ NEW: Connection pool settings
+DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "5"))
+DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "20"))
+DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "30.0"))
+DB_COMMAND_TIMEOUT = float(os.getenv("DB_COMMAND_TIMEOUT", "60.0"))
 
 # === DATABASE RETRY LOGIC ===
 DB_MAX_RETRIES = int(os.getenv("DB_MAX_RETRIES", "3"))
@@ -231,3 +247,9 @@ ROLE_PERMISSIONS = {
         "manage_settings": False,
     },
 }
+
+# === LOGGING ===
+if DB_TYPE == "postgresql":
+    logger.info(f"✅ Database configured: PostgreSQL (pool: {DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE})")
+else:
+    logger.info(f"⚠️ Database configured: SQLite (legacy mode) - {DATABASE_PATH}")
