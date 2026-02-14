@@ -72,21 +72,32 @@ DEPLOY_QUEUE_KEY = f"{REDIS_KEY_PREFIX}deploy_queue"
 DEPLOY_RESULTS_KEY = f"{REDIS_KEY_PREFIX}deploy_results"
 
 MASTER_BOT_TOKEN = os.getenv("MASTER_BOT_TOKEN")
-DB_PATH = str(project_root / "subscriptions.db")
+
+# ✅ PostgreSQL из ENV
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://booking_user:SecurePass2026!@localhost:5432/booking_saas"
+)
+PG_SCHEMA = os.getenv("PG_SCHEMA", "master_bot")
 
 # Создать директорию для логов
 (project_root / "logs").mkdir(exist_ok=True)
 
 
 class DeployWorker:
-    """Worker для обработки задач деплоя"""
+    """Вorker для обработки задач деплоя"""
     
     def __init__(self):
+        # ✅ PostgreSQL connection
         self.deploy_manager = DeploymentManager(
             project_root=project_root,
-            subscription_db=DB_PATH
+            database_url=DATABASE_URL,
+            pg_schema=PG_SCHEMA
         )
-        self.sub_manager = SubscriptionManager(DB_PATH)
+        self.sub_manager = SubscriptionManager(
+            database_url=DATABASE_URL,
+            schema=PG_SCHEMA
+        )
         
         # Redis клиент
         if REDIS_AVAILABLE:
@@ -249,9 +260,10 @@ class DeployWorker:
     
     async def run(self):
         """Основной цикл worker'а"""
-        logger.info("🚀 Deploy Worker started")
+        logger.info("🚀 Deploy Worker starting...")
         logger.info(f"📂 Project root: {project_root}")
-        logger.info(f"💾 Database: {DB_PATH}")
+        logger.info(f"💾 Database: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'local'}")
+        logger.info(f"📂 Schema: {PG_SCHEMA}")
         logger.info(f"🔄 Queue key: {DEPLOY_QUEUE_KEY}")
         
         if not self.redis:
