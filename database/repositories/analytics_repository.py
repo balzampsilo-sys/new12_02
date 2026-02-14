@@ -1,118 +1,129 @@
-"""Репозиторий для работы с аналитикой и отзывами"""
+"""Репозиторий для аналитики и отзывов
+
+✅ FIXED: Заменен aiosqlite на db_adapter для PostgreSQL поддержки
+"""
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from datetime import datetime
+from typing import List, Tuple
 
-import aiosqlite
-
-from config import DATABASE_PATH
-from database.base_repository import BaseRepository
+from database.db_adapter import db_adapter  # ✅ NEW
 from utils.helpers import now_local
 
 
 @dataclass
 class ClientStats:
     """Статистика клиента"""
-
     total_bookings: int
-    cancelled_bookings: int
+    completed_bookings: int
     avg_rating: float
-    last_booking: Optional[str]
+    favorite_time: str
+    first_booking: str
 
 
-class AnalyticsRepository(BaseRepository):
-    """Репозиторий для аналитики и отзывов"""
+class AnalyticsRepository:
+    """Репозиторий для аналитики
+    
+    ✅ FIXED: Использует db_adapter вместо aiosqlite
+    """
 
     @staticmethod
     async def log_event(user_id: int, event: str, data: str = ""):
-        """Логирование события"""
+        """Логировать событие"""
         try:
-            await AnalyticsRepository._execute_query(
-                "INSERT INTO analytics (user_id, event, data, timestamp) VALUES (?, ?, ?, ?)",
-                (user_id, event, data, now_local().isoformat()),
-                commit=True,
+            await db_adapter.execute(
+                "INSERT INTO analytics (user_id, event, data, timestamp) VALUES ($1, $2, $3, $4)",
+                user_id, event, data, now_local()
             )
         except Exception as e:
-            # Не падаем, только логируем
-            logging.error(f"Failed to log event {event} for user {user_id}: {e}")
+            logging.error(f"Error logging event {event} for user {user_id}: {e}")
 
     @staticmethod
     async def get_client_stats(user_id: int) -> ClientStats:
-        """Статистика клиента"""
+        """Получить статистику клиента"""
         try:
-            # Всего записей
-            total = await AnalyticsRepository._count(
-                "analytics", "user_id=? AND event='booking_created'", (user_id,)
-            )
+            # Total bookings
+            total = await db_adapter.fetchval(
+                "SELECT COUNT(*) FROM bookings WHERE user_id = $1",
+                user_id
+            ) or 0
 
-            # Отмен
-            cancelled = await AnalyticsRepository._count(
-                "analytics", "user_id=? AND event='booking_cancelled'", (user_id,)
-            )
+            # Completed bookings (прошедшие)
+            now = now_local().date().isoformat()
+            completed = await db_adapter.fetchval(
+                "SELECT COUNT(*) FROM bookings WHERE user_id = $1 AND date < $2",
+                user_id, now
+            ) or 0
 
-            # Средний рейтинг
-            avg_result = await AnalyticsRepository._execute_query(
-                "SELECT AVG(rating) FROM feedback WHERE user_id=?",
-                (user_id,),
-                fetch_one=True,
+            # Average rating
+            avg_rating = await db_adapter.fetchval(
+                "SELECT AVG(rating) FROM feedback WHERE user_id = $1",
+                user_id
             )
-            avg_rating = avg_result[0] if avg_result and avg_result[0] else 0.0
+            avg_rating = float(avg_rating) if avg_rating else 0.0
 
-            # Последняя запись
-            last_result = await AnalyticsRepository._execute_query(
-                "SELECT data FROM analytics WHERE user_id=? AND event='booking_created' "
-                "ORDER BY timestamp DESC LIMIT 1",
-                (user_id,),
-                fetch_one=True,
+            # Favorite time
+            fav_row = await db_adapter.fetchrow(
+                """SELECT time, COUNT(*) as cnt
+                FROM bookings
+                WHERE user_id = $1
+                GROUP BY time
+                ORDER BY cnt DESC
+                LIMIT 1""",
+                user_id
             )
-            last_booking = last_result[0] if last_result else None
+            favorite_time = fav_row["time"] if fav_row else "—"
+
+            # First booking
+            first_row = await db_adapter.fetchrow(
+                "SELECT date FROM bookings WHERE user_id = $1 ORDER BY date, time LIMIT 1",
+                user_id
+            )
+            first_booking = first_row["date"] if first_row else "—"
 
             return ClientStats(
                 total_bookings=total,
-                cancelled_bookings=cancelled,
+                completed_bookings=completed,
                 avg_rating=avg_rating,
-                last_booking=last_booking,
+                favorite_time=favorite_time,
+                first_booking=first_booking,
             )
         except Exception as e:
-            logging.error(f"Error getting client stats for {user_id}: {e}")
-            return ClientStats(
-                total_bookings=0, cancelled_bookings=0, avg_rating=0.0, last_booking=None
-            )
+            logging.error(f"Error getting client stats for user {user_id}: {e}")
+            return ClientStats(0, 0, 0.0, "—", "—")
 
     @staticmethod
     async def save_feedback(user_id: int, booking_id: int, rating: int) -> bool:
         """Сохранить отзыв"""
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                await db.execute(
-                    "INSERT INTO feedback (user_id, booking_id, rating, timestamp) "
-                    "VALUES (?, ?, ?, ?)",
-                    (user_id, booking_id, rating, now_local().isoformat()),
-                )
-                await db.commit()
+            await db_adapter.execute(
+                "INSERT INTO feedback (user_id, booking_id, rating, timestamp) VALUES ($1, $2, $3, $4)",
+                user_id, booking_id, rating, now_local()
+            )
+            logging.info(f"Feedback saved: user={user_id}, booking={booking_id}, rating={rating}")
             return True
-        except aiosqlite.IntegrityError as e:
-            logging.warning(f"Feedback already exists for booking {booking_id}: {e}")
-            return False
         except Exception as e:
-            logging.error(f"Database error in save_feedback: {e}")
+            logging.error(f"Error saving feedback: {e}")
             return False
 
     @staticmethod
     async def get_top_clients(limit: int = 10) -> List[Tuple]:
-        """Топ клиентов по количеству записей"""
+        """Получить топ клиентов по количеству записей"""
         try:
-            return (
-                await AnalyticsRepository._execute_query(
-                    """SELECT user_id, COUNT(*) as total FROM analytics
-                    WHERE event='booking_created'
-                    GROUP BY user_id ORDER BY total DESC LIMIT ?""",
-                    (limit,),
-                    fetch_all=True,
-                )
-                or []
+            rows = await db_adapter.fetch(
+                """SELECT user_id, COUNT(*) as booking_count
+                FROM bookings
+                GROUP BY user_id
+                ORDER BY booking_count DESC
+                LIMIT $1""",
+                limit
             )
+            
+            if not rows:
+                return []
+            
+            return [(row["user_id"], row["booking_count"]) for row in rows]
         except Exception as e:
             logging.error(f"Error getting top clients: {e}")
             return []
