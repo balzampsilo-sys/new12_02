@@ -471,6 +471,7 @@ async def process_confirmation(message: types.Message, state: FSMContext):
         # Уведомить о постановке в очередь
         queue_length = deploy_queue.get_queue_length()
         
+        # БЕЗ parse_mode вообще!
         success_text = f"""✅ ЗАДАЧА ДОБАВЛЕНА В ОЧЕРЕДЬ
 
 🏢 Компания: {data['company_name']}
