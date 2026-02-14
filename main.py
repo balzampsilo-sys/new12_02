@@ -20,6 +20,7 @@ from config import (
     BACKUP_RETENTION_DAYS,
     BOT_TOKEN,
     DATABASE_PATH,
+    DB_TYPE,
     RATE_LIMIT_CALLBACK,
     RATE_LIMIT_MESSAGE,
     REDIS_DB,
@@ -32,6 +33,7 @@ from config import (
     SENTRY_ENVIRONMENT,
     SENTRY_TRACES_SAMPLE_RATE,
 )
+from database.db_adapter import db_adapter  # ✅ NEW: Импорт db_adapter
 from database.migrations.migration_manager import MigrationManager
 from database.migrations.versions.v004_add_services import AddServicesBackwardCompatible
 from database.migrations.versions.v006_add_booking_history import AddBookingHistory
@@ -104,7 +106,13 @@ def check_and_restore_database():
     """
     Проверяет целостность БД и восстанавливает из бэкапа при необходимости.
     Вызывается ДО инициализации БД.
+    
+    ✅ UPDATED: Только для SQLite (PostgreSQL имеет свои backup-стратегии)
     """
+    if DB_TYPE != "sqlite":
+        logger.info("PostgreSQL mode - skipping SQLite integrity check")
+        return
+    
     db_exists = os.path.exists(DATABASE_PATH)
     db_corrupted = False
 
@@ -162,7 +170,13 @@ def check_and_restore_database():
 
 
 async def init_database():
-    """Инициализация БД с миграциями"""
+    """Инициализация БД с миграциями
+    
+    ✅ UPDATED: Инициализация db_adapter перед созданием таблиц
+    """
+    # ✅ CRITICAL: Инициализация connection pool
+    await db_adapter.init_pool()
+    
     await Database.init_db()
 
     manager = MigrationManager(DATABASE_PATH)
@@ -177,9 +191,16 @@ async def init_database():
 
 
 def setup_backup_job(scheduler: AsyncIOScheduler, backup_service: BackupService):
-    """Настройка периодического резервного копирования"""
+    """Настройка периодического резервного копирования
+    
+    ✅ UPDATED: Только для SQLite (PostgreSQL использует pg_dump)
+    """
     if not BACKUP_ENABLED:
         logger.info("Backup disabled in config")
+        return
+    
+    if DB_TYPE != "sqlite":
+        logger.info("PostgreSQL mode - use pg_dump for backups")
         return
 
     def backup_job():
@@ -330,7 +351,7 @@ def setup_reminder_jobs(scheduler: AsyncIOScheduler, bot: Bot):
 
 # ✅ P0 FIX: Async функции для напоминаний (вызываются из sync wrappers)
 async def _reminder_24h_async(bot: Bot):
-    """Async логика отправки напоминаний за 24 часа"""
+    """Аsync логика отправки напоминаний за 24 часа"""
     try:
         success, total = await ReminderService.send_reminders_24h(bot)
         if total > 0:
@@ -341,7 +362,7 @@ async def _reminder_24h_async(bot: Bot):
 
 # ✅ NEW: Async логика для напоминаний за 2 часа
 async def _reminder_2h_async(bot: Bot):
-    """Async логика отправки напоминаний за 2 часа (NEW!)"""
+    """Аsync логика отправки напоминаний за 2 часа (NEW!)"""
     try:
         success, total = await ReminderService.send_reminders_2h(bot)
         if total > 0:
@@ -351,7 +372,7 @@ async def _reminder_2h_async(bot: Bot):
 
 
 async def _reminder_1h_async(bot: Bot):
-    """Async логика отправки напоминаний за 1 час"""
+    """Аsync логика отправки напоминаний за 1 час"""
     try:
         success, total = await ReminderService.send_reminders_1h(bot)
         if total > 0:
@@ -405,7 +426,7 @@ async def get_storage():
 async def start_bot():
     """Запуск бота с retry логикой и централизованной обработкой ошибок
     
-    ✅ ИСПРАВЛЕНО: Правильный shutdown для Redis
+    ✅ ИСПРАВЛЕНО: Правильный shutdown для Redis и PostgreSQL pool
     """
     check_and_restore_database()
 
@@ -425,7 +446,7 @@ async def start_bot():
     # ✅ NEW: Инициализация HybridTextManager (загрузка YAML)
     await HybridTextManager.init()
 
-    if BACKUP_ENABLED:
+    if BACKUP_ENABLED and DB_TYPE == "sqlite":
         backup_service = BackupService(
             db_path=DATABASE_PATH, backup_dir=BACKUP_DIR, retention_days=BACKUP_RETENTION_DAYS
         )
@@ -484,13 +505,15 @@ async def start_bot():
 
     logger.info("Bot started successfully")
     logger.info(
+        f"Database: {DB_TYPE.upper()} | "
         "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
         "Auto Cleanup, Reminders (24h/2h/1h), Booking History, Settings, Calendar, "
         "Slot Intervals, Hybrid i18n (YAML + DB with Admin UI)"
     )
     logger.info(
         "✅ P0 Fixes Applied: Event Loop (asyncio.get_running_loop) + "
-        "2h Reminders + Transaction Timeouts + Redis Leak + Migrations v008-v009"
+        "2h Reminders + Transaction Timeouts + Redis Leak + Migrations v008-v009 + "
+        "PostgreSQL Migration with Connection Pooling"
     )
     
     if SENTRY_ENABLED:
@@ -501,6 +524,7 @@ async def start_bot():
     finally:
         logger.info("Shutting down bot...")
         
+        # ✅ CRITICAL: Правильный shutdown sequence
         if isinstance(storage, RedisStorage):
             await storage.close()
             logger.info("Redis storage closed")
@@ -508,6 +532,10 @@ async def start_bot():
             if redis_client:
                 await redis_client.close()
                 logger.info("Redis connection pool closed")
+        
+        # ✅ NEW: Закрытие PostgreSQL pool
+        await db_adapter.close_pool()
+        logger.info("Database pool closed")
         
         await bot.session.close()
         scheduler.shutdown(wait=False)
