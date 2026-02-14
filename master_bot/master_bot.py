@@ -4,7 +4,7 @@ Master Bot - Автоматический деплой клиентов чере
 
 Функции:
 - Прием заявок на новых клиентов
-- Автоматический деплой ботов
+- Автоматический деплойботов
 - Управление подписками
 - Интеграция с платежами
 - Статистика и мониторинг
@@ -23,6 +23,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+
+# Загрузить переменные окружения из .env
+from dotenv import load_dotenv
+load_dotenv()
 
 # Добавить automation/ в путь
 project_root = Path(__file__).parent.parent
@@ -386,6 +390,12 @@ async def process_confirmation(message: types.Message, state: FSMContext):
             company_name=data['company_name']
         )
         
+        # Удалить сообщение о процессе
+        try:
+            await processing_msg.delete()
+        except:
+            pass
+        
         if result['success']:
             success_text = f"""
 ✅ **БОТ УСПЕШНО РАЗВЕРНУТ!**
@@ -402,7 +412,8 @@ async def process_confirmation(message: types.Message, state: FSMContext):
 📱 Клиент может найти бота по username в Telegram
             """
             
-            await processing_msg.edit_text(
+            # Отправить НОВОЕ сообщение
+            await message.answer(
                 success_text,
                 parse_mode="Markdown"
             )
@@ -418,7 +429,8 @@ async def process_confirmation(message: types.Message, state: FSMContext):
                 logger.warning(f"Не удалось уведомить клиента: {e}")
         
         else:
-            await processing_msg.edit_text(
+            # Отправить НОВОЕ сообщение об ошибке
+            await message.answer(
                 f"❌ **ОШИБКА ДЕПЛОЯ**\n\n"
                 f"Причина: {result.get('error', 'Unknown')}\n\n"
                 f"Попробуйте еще раз или проверьте логи",
@@ -427,7 +439,15 @@ async def process_confirmation(message: types.Message, state: FSMContext):
     
     except Exception as e:
         logger.error(f"Deploy error: {e}", exc_info=True)
-        await processing_msg.edit_text(
+        
+        # Удалить сообщение о процессе
+        try:
+            await processing_msg.delete()
+        except:
+            pass
+        
+        # Отправить НОВОЕ сообщение об ошибке
+        await message.answer(
             f"❌ **КРИТИЧЕСКАЯ ОШИБКА**\n\n"
             f"Ошибка: {str(e)}\n\n"
             f"Обратитесь к техподдержке",
