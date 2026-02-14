@@ -41,3 +41,6 @@ cachetools==5.5.0
 
 # HTTP requests (for sales_bot)
 requests==2.32.3
+
+# Payment Integration (YooKassa for Sales Bot)
+yookassa==3.5.0
