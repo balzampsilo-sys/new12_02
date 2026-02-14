@@ -1,4 +1,5 @@
 # Environment files with passwords
+.env.shared
 .env.shared.local
 .env
 clients/*/.env
@@ -26,6 +27,9 @@ clients/*/data/
 # Docker volumes
 postgres_data/
 redis_data/
+
+# Docker compose generated files
+docker-compose.infrastructure.yml
 
 # Python
 __pycache__/
@@ -75,6 +79,3 @@ htmlcov/
 *.tmp
 *.bak
 *.cache
-
-# Infrastructure compose file (generated)
-docker-compose.infrastructure.yml
