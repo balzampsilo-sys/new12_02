@@ -1,11 +1,12 @@
-"""Фасад для работы с базой данных через репозитории"""
+"""Фасад для работы с базой данных через репозитории
+
+✅ ИСПРАВЛЕНО: Теперь использует db_adapter для PostgreSQL/SQLite
+"""
 
 import logging
 from typing import Dict, List, Optional, Tuple
 
-import aiosqlite
-
-from config import DATABASE_PATH
+from database.db_adapter import db_adapter
 from database.repositories import (
     AdminRepository,
     AnalyticsRepository,
@@ -19,74 +20,111 @@ from database.repositories.settings_repository import SettingsRepository
 # Реэкспортируем ClientStats для обратной совместимости
 __all__ = ["Database", "ClientStats"]
 
+logger = logging.getLogger(__name__)
+
 
 class Database:
     """
     Фасад для работы с базой данных.
     Делегирует вызовы специализированным репозиториям.
+    
+    ✅ UPDATED: Использует db_adapter вместо прямого aiosqlite
     """
 
     # === ИНИЦИАЛИЗАЦИЯ ===
 
     @staticmethod
     async def init_db():
-        """Инициализация БД с таблицами и индексами"""
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            # Таблицы
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS bookings
-                (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT, time TEXT, user_id INTEGER, username TEXT,
-                created_at TEXT, service_id INTEGER DEFAULT 1,
+        """Инициализация БД с таблицами и индексами
+        
+        ✅ ИСПРАВЛЕНО: Теперь использует db_adapter с PostgreSQL-совместимым SQL
+        """
+        from config import DB_TYPE
+        
+        # Выбор правильного синтаксиса для PRIMARY KEY
+        if DB_TYPE == "postgresql":
+            pk_syntax = "SERIAL PRIMARY KEY"
+            timestamp_default = "CURRENT_TIMESTAMP"
+        else:
+            pk_syntax = "INTEGER PRIMARY KEY AUTOINCREMENT"
+            timestamp_default = "CURRENT_TIMESTAMP"
+        
+        async with db_adapter.acquire() as conn:
+            # Таблицы (PostgreSQL-compatible)
+            await conn.execute(
+                f"""CREATE TABLE IF NOT EXISTS bookings (
+                id {pk_syntax},
+                date TEXT NOT NULL,
+                time TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                created_at TEXT NOT NULL,
+                service_id INTEGER DEFAULT 1,
                 duration_minutes INTEGER DEFAULT 60,
-                UNIQUE(date, time))"""
+                UNIQUE(date, time)
+            )"""
             )
 
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS users
-                (user_id INTEGER PRIMARY KEY, first_seen TEXT)"""
+            await conn.execute(
+                """CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                first_seen TEXT NOT NULL
+            )"""
             )
 
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS analytics
-                (user_id INTEGER, event TEXT, data TEXT, timestamp TEXT)"""
+            await conn.execute(
+                f"""CREATE TABLE IF NOT EXISTS analytics (
+                id {pk_syntax},
+                user_id INTEGER NOT NULL,
+                event TEXT NOT NULL,
+                data TEXT,
+                timestamp TEXT NOT NULL
+            )"""
             )
 
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS feedback
-                (user_id INTEGER, booking_id INTEGER, rating INTEGER, timestamp TEXT)"""
+            await conn.execute(
+                f"""CREATE TABLE IF NOT EXISTS feedback (
+                id {pk_syntax},
+                user_id INTEGER NOT NULL,
+                booking_id INTEGER NOT NULL,
+                rating INTEGER NOT NULL,
+                timestamp TEXT NOT NULL
+            )"""
             )
 
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS blocked_slots
-                (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            await conn.execute(
+                f"""CREATE TABLE IF NOT EXISTS blocked_slots (
+                id {pk_syntax},
                 date TEXT NOT NULL,
                 time TEXT NOT NULL,
                 reason TEXT,
                 blocked_by INTEGER NOT NULL,
-                blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(date, time))"""
+                blocked_at TIMESTAMP DEFAULT {timestamp_default},
+                UNIQUE(date, time)
+            )"""
             )
 
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS admin_sessions
-                (user_id INTEGER PRIMARY KEY, message_id INTEGER, updated_at TEXT)"""
+            await conn.execute(
+                """CREATE TABLE IF NOT EXISTS admin_sessions (
+                user_id INTEGER PRIMARY KEY,
+                message_id INTEGER,
+                updated_at TEXT
+            )"""
             )
 
-            # Sprint 3: Таблица администраторов
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS admins
-                (user_id INTEGER PRIMARY KEY,
+            await conn.execute(
+                """CREATE TABLE IF NOT EXISTS admins (
+                user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 added_by INTEGER,
                 added_at TEXT NOT NULL,
-                role TEXT DEFAULT 'moderator')"""
+                role TEXT DEFAULT 'moderator'
+            )"""
             )
 
-            # Low Priority: Audit log
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+            await conn.execute(
+                f"""CREATE TABLE IF NOT EXISTS audit_log (
+                id {pk_syntax},
                 admin_id INTEGER NOT NULL,
                 action TEXT NOT NULL,
                 target_id TEXT,
@@ -95,11 +133,9 @@ class Database:
             )"""
             )
 
-            # P0: История изменений записей
-            # ✅ ИСПРАВЛЕНО: Убраны CHECK constraints для совместимости
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS booking_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+            await conn.execute(
+                f"""CREATE TABLE IF NOT EXISTS booking_history (
+                id {pk_syntax},
                 booking_id INTEGER NOT NULL,
                 changed_by INTEGER NOT NULL,
                 changed_by_type TEXT NOT NULL,
@@ -115,114 +151,59 @@ class Database:
             )"""
             )
 
-            # P2: Миграция - добавляем service_id если его еще нет
-            try:
-                async with db.execute("PRAGMA table_info(bookings)") as cursor:
-                    columns = await cursor.fetchall()
-                    column_names = [col[1] for col in columns]
-
-                    if "service_id" not in column_names:
-                        logging.info("🔄 Добавляем service_id в существующую таблицу bookings...")
-                        await db.execute(
-                            "ALTER TABLE bookings ADD COLUMN service_id INTEGER DEFAULT 1"
-                        )
-                        logging.info("✅ service_id добавлен")
-
-                    if "duration_minutes" not in column_names:
-                        logging.info(
-                            "🔄 Добавляем duration_minutes в существующую таблицу bookings..."
-                        )
-                        await db.execute(
-                            "ALTER TABLE bookings ADD COLUMN duration_minutes INTEGER DEFAULT 60"
-                        )
-                        logging.info("✅ duration_minutes добавлен")
-            except Exception as e:
-                logging.warning(f"⚠️ Не удалось добавить колонки: {e}")
-
-            # Low Priority: Добавляем role если его нет
-            try:
-                async with db.execute("PRAGMA table_info(admins)") as cursor:
-                    columns = await cursor.fetchall()
-                    column_names = [col[1] for col in columns]
-
-                    if "role" not in column_names:
-                        logging.info("🔄 Добавляем role в существующую таблицу admins...")
-                        await db.execute(
-                            "ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'moderator'"
-                        )
-                        logging.info("✅ role добавлен")
-            except Exception as e:
-                logging.warning(f"⚠️ Не удалось добавить role: {e}")
-
             # Индексы для производительности
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_bookings_date
-                ON bookings(date, time)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date, time)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_bookings_user
-                ON bookings(user_id)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_bookings_service
-                ON bookings(service_id)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_bookings_service ON bookings(service_id)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_analytics_user
-                ON analytics(user_id, event)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analytics_user ON analytics(user_id, event)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_blocked_date
-                ON blocked_slots(date, time)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_blocked_date ON blocked_slots(date, time)"
             )
-            await db.execute(
-                """CREATE UNIQUE INDEX IF NOT EXISTS idx_user_active_bookings
-                ON bookings(user_id, date, time)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analytics_timestamp ON analytics(timestamp)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_analytics_timestamp
-                ON analytics(timestamp)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_feedback_timestamp ON feedback(timestamp)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_feedback_timestamp
-                ON feedback(timestamp)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback(user_id)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_feedback_user
-                ON feedback(user_id)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_admins_added ON admins(added_at)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_bookings_date_time
-                ON bookings(date, time)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_admin ON audit_log(admin_id)"
             )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_admins_added
-                ON admins(added_at)"""
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)"
             )
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_admin ON audit_log(admin_id)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
-            await db.execute(
+            await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)"
             )
-
-            # P0: Индексы для booking_history
-            await db.execute(
+            await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_booking_history_booking ON booking_history(booking_id)"
             )
-            await db.execute(
+            await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_booking_history_changed_by ON booking_history(changed_by)"
             )
-            await db.execute(
+            await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_booking_history_timestamp ON booking_history(changed_at)"
             )
 
-            await db.commit()
-            logging.info("Database initialized with indexes and race condition protection")
+        logger.info(f"✅ Database initialized with {DB_TYPE.upper()} adapter")
 
         # Инициализация дополнительных таблиц
         await SettingsRepository.init_settings_table()
         await CalendarRepository.init_calendar_tables()
-        logging.info("✅ All database tables initialized")
+        logger.info("✅ All database tables initialized")
 
     # === БРОНИРОВАНИЯ (делегирование в BookingRepository) ===
 
@@ -268,16 +249,17 @@ class Database:
 
         Returns:
             service_id или None если не найдено
+            
+        ✅ ИСПРАВЛЕНО: Использует db_adapter
         """
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                async with db.execute(
-                    "SELECT service_id FROM bookings WHERE id=?", (booking_id,)
-                ) as cursor:
-                    result = await cursor.fetchone()
-                    return result[0] if result else None
+            result = await db_adapter.fetchrow(
+                "SELECT service_id FROM bookings WHERE id=$1",
+                booking_id
+            )
+            return result['service_id'] if result else None
         except Exception as e:
-            logging.error(f"Error getting booking service_id: {e}")
+            logger.error(f"Error getting booking service_id: {e}")
             return None
 
     @staticmethod
