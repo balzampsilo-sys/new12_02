@@ -1,81 +1,85 @@
 """
-Redis Storage с поддержкой key prefix для изоляции клиентов
+PrefixedRedisStorage - Redis storage with key prefix isolation
 
-Позволяет использовать неограниченное количество клиентов на одном Redis,
-изолируя данные через префиксы ключей вместо разных DB.
+Позволяет использовать неограниченное количество клиентов
+на одном Redis инстансе через префиксы ключей.
 
-Пример:
-    client_001:fsm:state:123456789
-    client_002:fsm:state:987654321
+Вместо:
+    REDIS_DB=0  # client_001
+    REDIS_DB=1  # client_002
+    ...
+    REDIS_DB=15 # client_016  ❌ Лимит!
+
+Используем:
+    REDIS_DB=0
+    CLIENT_ID=client_001  # Префикс: client_001:
+    CLIENT_ID=client_002  # Префикс: client_002:
+    ...
+    CLIENT_ID=client_999  # ✅ Неограничено!
+
+Usage:
+    from redis.asyncio import Redis
+    from middlewares.redis_storage_with_prefix import PrefixedRedisStorage
     
-Преимущества:
-    - Неограниченное количество клиентов (вместо 16)
-    - Лучшая производительность
-    - Меньше памяти
-    - Рекомендуется Redis
+    redis_client = Redis(host='localhost', port=6379, db=0)
+    
+    storage = PrefixedRedisStorage(
+        redis=redis_client,
+        key_prefix="client_001:"  # Уникальный префикс
+    )
+    
+    dp = Dispatcher(storage=storage)
+
+Keys in Redis:
+    client_001:fsm:state:123456789
+    client_001:fsm:data:123456789
+    client_002:fsm:state:987654321
+    client_002:fsm:data:987654321
 """
 
-import logging
-from typing import Any, Dict, Optional
-
+from typing import Optional, Dict, Any
 from aiogram.fsm.storage.redis import RedisStorage, DefaultKeyBuilder
+from aiogram.fsm.storage.base import StorageKey
 from redis.asyncio import Redis
-
-logger = logging.getLogger(__name__)
 
 
 class PrefixedKeyBuilder(DefaultKeyBuilder):
     """
-    Key builder с поддержкой префикса для изоляции клиентов
+    Key builder с поддержкой префиксов
     """
     
     def __init__(self, prefix: str = "", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.prefix = prefix
-        logger.info(f"PrefixedKeyBuilder initialized with prefix: '{prefix}'")
     
-    def build(self, key: str, part: str) -> str:
+    def build(self, key: StorageKey, part: str) -> str:
         """
         Построить ключ с префиксом
         
-        Args:
-            key: Базовый ключ (fsm, data, etc)
-            part: Часть ключа (chat_id, user_id, etc)
-        
-        Returns:
-            Полный ключ с префиксом
-            
-        Example:
-            >>> builder = PrefixedKeyBuilder(prefix="client_001:")
-            >>> builder.build("fsm", "state:123456789")
-            'client_001:fsm:state:123456789'
+        Examples:
+            Without prefix: fsm:state:123456789:*
+            With prefix:    client_001:fsm:state:123456789:*
         """
         base_key = super().build(key, part)
-        
-        if self.prefix:
-            prefixed_key = f"{self.prefix}{base_key}"
-            return prefixed_key
-        
-        return base_key
+        return f"{self.prefix}{base_key}" if self.prefix else base_key
 
 
 class PrefixedRedisStorage(RedisStorage):
     """
     Redis Storage с поддержкой key prefix для изоляции клиентов
     
-    Использует PrefixedKeyBuilder для автоматического добавления
-    префикса ко всем ключам, обеспечивая полную изоляцию данных
-    между клиентами.
+    Args:
+        redis: Redis client instance
+        key_prefix: Префикс для всех ключей (например: "client_001:")
+        state_ttl: TTL для state (в секундах)
+        data_ttl: TTL для data (в секундах)
     
-    Example:
-        >>> from redis.asyncio import Redis
-        >>> 
-        >>> redis = Redis(host="localhost", port=6379, db=0)
+    Examples:
+        >>> redis = Redis(host='localhost', port=6379, db=0)
         >>> storage = PrefixedRedisStorage(
         ...     redis=redis,
         ...     key_prefix="client_001:"
         ... )
-        >>> 
         >>> dp = Dispatcher(storage=storage)
     """
     
@@ -87,13 +91,6 @@ class PrefixedRedisStorage(RedisStorage):
         data_ttl: Optional[int] = None,
         **kwargs
     ):
-        """
-        Args:
-            redis: Redis connection
-            key_prefix: Префикс для всех ключей (например "client_001:")
-            state_ttl: TTL для состояний FSM (секунды)
-            data_ttl: TTL для данных FSM (секунды)
-        """
         # Создать key builder с префиксом
         key_builder = PrefixedKeyBuilder(
             prefix=key_prefix,
@@ -110,53 +107,55 @@ class PrefixedRedisStorage(RedisStorage):
         )
         
         self.key_prefix = key_prefix
-        logger.info(
-            f"✅ PrefixedRedisStorage initialized:\n"
-            f"   • Prefix: '{key_prefix}'\n"
-            f"   • State TTL: {state_ttl}s\n"
-            f"   • Data TTL: {data_ttl}s\n"
-            f"   • Redis: {redis.connection_pool.connection_kwargs.get('host')}:"
-            f"{redis.connection_pool.connection_kwargs.get('port')}"
-        )
     
-    async def close(self):
-        """Закрыть Redis connection"""
+    async def close(self) -> None:
+        """
+        Закрыть Redis соединение
+        """
         await self.redis.close()
-        logger.info(f"Redis storage closed for prefix: '{self.key_prefix}'")
+    
+    def __repr__(self) -> str:
+        return (
+            f"PrefixedRedisStorage("
+            f"prefix={self.key_prefix!r}, "
+            f"state_ttl={self.state_ttl}, "
+            f"data_ttl={self.data_ttl}"
+            f")"
+        )
 
 
-async def create_redis_storage(
-    host: str = "localhost",
+# Convenience function
+def create_prefixed_storage(
+    host: str = 'localhost',
     port: int = 6379,
     db: int = 0,
     password: Optional[str] = None,
     key_prefix: str = "",
-    state_ttl: Optional[int] = None,
-    data_ttl: Optional[int] = None
+    **kwargs
 ) -> PrefixedRedisStorage:
     """
-    Фабрика для создания Redis storage с префиксом
+    Создать PrefixedRedisStorage с автоматическим подключением
     
     Args:
         host: Redis host
         port: Redis port
-        db: Redis database (рекомендуется 0 для всех клиентов)
+        db: Redis database (recommended: 0 for all clients)
         password: Redis password
-        key_prefix: Префикс для изоляции клиента
-        state_ttl: TTL для состояний (None = без TTL)
-        data_ttl: TTL для данных (None = без TTL)
+        key_prefix: Key prefix for isolation
+        **kwargs: Additional arguments for PrefixedRedisStorage
     
     Returns:
-        Настроенный PrefixedRedisStorage
-        
-    Example:
-        >>> storage = await create_redis_storage(
-        ...     host="redis-shared",
+        PrefixedRedisStorage instance
+    
+    Examples:
+        >>> storage = create_prefixed_storage(
+        ...     host='redis-shared',
         ...     port=6379,
+        ...     db=0,
         ...     key_prefix="client_001:"
         ... )
     """
-    redis = Redis(
+    redis_client = Redis(
         host=host,
         port=port,
         db=db,
@@ -164,11 +163,8 @@ async def create_redis_storage(
         decode_responses=True
     )
     
-    storage = PrefixedRedisStorage(
-        redis=redis,
+    return PrefixedRedisStorage(
+        redis=redis_client,
         key_prefix=key_prefix,
-        state_ttl=state_ttl,
-        data_ttl=data_ttl
+        **kwargs
     )
-    
-    return storage
