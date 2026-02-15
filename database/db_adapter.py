@@ -1,9 +1,8 @@
-"""Адаптер базы данных для поддержки PostgreSQL и SQLite
+"""Адаптер базы данных для PostgreSQL
 
-Предоставляет unified interface для работы с разными типами БД.
-Автоматически определяет тип БД из конфигурации.
-
-✅ FIX: Добавлена поддержка search_path для multi-tenant изоляции
+Предоставляет unified interface для работы с PostgreSQL.
+✅ FIXED: Удалена поддержка SQLite (legacy)
+✅ FIXED: Только PostgreSQL с multi-tenant изоляцией
 
 Examples:
     >>> # Инициализация
@@ -32,20 +31,21 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseAdapter:
-    """Unified interface для работы с PostgreSQL и SQLite"""
+    """PostgreSQL database adapter with connection pooling
+    
+    ✅ FIXED: PostgreSQL-only (SQLite legacy removed)
+    ✅ FIXED: Multi-tenant isolation via search_path
+    """
 
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
-        self.db_type = None
-        self.schema = None  # ✅ NEW: Store schema name
+        self.schema = None
         self._initialized = False
 
     async def init_pool(self) -> None:
         """Инициализация connection pool
-
-        Reads config from imported module to avoid circular imports.
         
-        ✅ FIX: Добавлена поддержка search_path для multi-tenant изоляции
+        ✅ FIXED: PostgreSQL-only, SQLite removed
         """
         if self._initialized:
             logger.warning("DatabaseAdapter already initialized")
@@ -58,40 +58,34 @@ class DatabaseAdapter:
             DB_POOL_MAX_SIZE,
             DB_POOL_MIN_SIZE,
             DB_POOL_TIMEOUT,
-            DB_TYPE,
             PG_SCHEMA,
         )
 
-        self.db_type = DB_TYPE
-        self.schema = PG_SCHEMA  # ✅ NEW: Store schema
+        self.schema = PG_SCHEMA
 
-        if self.db_type == "postgresql":
-            try:
-                self.pool = await asyncpg.create_pool(
-                    dsn=DATABASE_URL,
-                    min_size=DB_POOL_MIN_SIZE,
-                    max_size=DB_POOL_MAX_SIZE,
-                    timeout=DB_POOL_TIMEOUT,
-                    command_timeout=DB_COMMAND_TIMEOUT,
-                    # ✅ FIX: Установка search_path для изоляции клиентов
-                    server_settings={
-                        "search_path": PG_SCHEMA,  # ✅ CRITICAL: Multi-tenant isolation
-                        "application_name": "booking_bot",
-                        "jit": "off",  # Отключить JIT для предсказуемости
-                    },
-                )
-                logger.info(
-                    f"✅ PostgreSQL pool created: "
-                    f"{DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE} connections\n"
-                    f"   • Schema: {PG_SCHEMA} (search_path set)"
-                )
-                self._initialized = True
-            except Exception as e:
-                logger.critical(f"❌ Failed to create PostgreSQL pool: {e}")
-                raise
-        else:
-            logger.info("SQLite mode - using direct connections (legacy)")
+        try:
+            self.pool = await asyncpg.create_pool(
+                dsn=DATABASE_URL,
+                min_size=DB_POOL_MIN_SIZE,
+                max_size=DB_POOL_MAX_SIZE,
+                timeout=DB_POOL_TIMEOUT,
+                command_timeout=DB_COMMAND_TIMEOUT,
+                # ✅ CRITICAL: Multi-tenant isolation
+                server_settings={
+                    "search_path": PG_SCHEMA,
+                    "application_name": "booking_bot",
+                    "jit": "off",
+                },
+            )
+            logger.info(
+                f"✅ PostgreSQL pool created: "
+                f"{DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE} connections\n"
+                f"   • Schema: {PG_SCHEMA} (search_path set)"
+            )
             self._initialized = True
+        except Exception as e:
+            logger.critical(f"❌ Failed to create PostgreSQL pool: {e}")
+            raise
 
     async def close_pool(self) -> None:
         """Закрытие connection pool"""
@@ -105,22 +99,13 @@ class DatabaseAdapter:
         """Получение connection из pool
 
         Yields:
-            Connection wrapper (PostgreSQLConnection or SQLiteConnection)
+            PostgreSQLConnection wrapper
         """
         if not self._initialized:
             raise RuntimeError("DatabaseAdapter not initialized. Call init_pool() first.")
 
-        if self.db_type == "postgresql":
-            async with self.pool.acquire() as conn:
-                yield PostgreSQLConnection(conn, self.schema)
-        else:
-            # Legacy SQLite fallback
-            import aiosqlite
-            from config import DATABASE_PATH
-
-            async with aiosqlite.connect(DATABASE_PATH) as conn:
-                conn.row_factory = aiosqlite.Row
-                yield SQLiteConnection(conn)
+        async with self.pool.acquire() as conn:
+            yield PostgreSQLConnection(conn, self.schema)
 
     async def execute(
         self, query: str, *args, timeout: Optional[float] = None
@@ -191,12 +176,12 @@ class DatabaseAdapter:
 class PostgreSQLConnection:
     """Wrapper для asyncpg connection
     
-    ✅ FIX: Добавлен schema awareness
+    ✅ FIXED: Schema-aware connection
     """
 
     def __init__(self, conn: asyncpg.Connection, schema: str):
         self.conn = conn
-        self.schema = schema  # ✅ NEW: Store schema
+        self.schema = schema
 
     async def execute(
         self, query: str, *args, timeout: Optional[float] = None
@@ -227,71 +212,6 @@ class PostgreSQLConnection:
             Transaction context manager
         """
         return self.conn.transaction()
-
-
-class SQLiteConnection:
-    """Wrapper для aiosqlite connection (legacy)"""
-
-    def __init__(self, conn):
-        self.conn = conn
-
-    async def execute(
-        self, query: str, *args, timeout: Optional[float] = None
-    ) -> str:
-        # SQLite использует ? вместо $1, $2
-        # Конвертируем параметры
-        sqlite_query = self._convert_placeholders(query)
-        cursor = await self.conn.execute(sqlite_query, args)
-        await self.conn.commit()
-        return f"Rows affected: {cursor.rowcount}"
-
-    async def fetch(
-        self, query: str, *args, timeout: Optional[float] = None
-    ) -> List[Dict]:
-        sqlite_query = self._convert_placeholders(query)
-        cursor = await self.conn.execute(sqlite_query, args)
-        rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
-
-    async def fetchrow(
-        self, query: str, *args, timeout: Optional[float] = None
-    ) -> Optional[Dict]:
-        sqlite_query = self._convert_placeholders(query)
-        cursor = await self.conn.execute(sqlite_query, args)
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-
-    async def fetchval(
-        self, query: str, *args, column: int = 0, timeout: Optional[float] = None
-    ) -> Any:
-        row = await self.fetchrow(query, *args)
-        return list(row.values())[column] if row else None
-
-    @asynccontextmanager
-    async def transaction(self):
-        """Эмуляция транзакции для SQLite"""
-        try:
-            yield
-            await self.conn.commit()
-        except Exception:
-            await self.conn.rollback()
-            raise
-
-    @staticmethod
-    def _convert_placeholders(query: str) -> str:
-        """Конвертирует PostgreSQL placeholders ($1, $2) в SQLite (?)
-
-        Args:
-            query: SQL запрос с $1, $2, ...
-
-        Returns:
-            SQL запрос с ?
-        """
-        import re
-
-        # Заменяем $1, $2, ... на ?
-        converted = re.sub(r"\$\d+", "?", query)
-        return converted
 
 
 # Global instance
