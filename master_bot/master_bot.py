@@ -33,6 +33,10 @@ load_dotenv()
 project_root = Path(__file__).parent.parent.resolve()  # Абсолютный путь!
 sys.path.insert(0, str(project_root / "automation"))
 
+# Добавить handlers/ в путь для импорта
+handlers_path = Path(__file__).parent / "handlers"
+sys.path.insert(0, str(handlers_path))
+
 from subscription_manager import SubscriptionManager
 from deploy_queue import DeployQueue
 
@@ -61,7 +65,7 @@ dp = Dispatcher(storage=storage)
 
 # === DOCKER HANDLERS ===
 try:
-    from master_bot.handlers.docker_deploy_handlers import router as docker_router
+    from docker_deploy_handlers import router as docker_router
     dp.include_router(docker_router)
     logger.info("✅ Docker autonomous deployment handlers registered")
 except ImportError as e:
