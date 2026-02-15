@@ -95,7 +95,7 @@ if not exist "requirements.txt" (
 )
 echo       requirements.txt: OK
 echo.
-echo ✅ All pre-flight checks passed!
+echo All pre-flight checks passed!
 echo.
 
 REM ====================
@@ -109,7 +109,7 @@ echo.
 echo Stopping all containers...
 docker-compose %COMPOSE_FILE% down 2>nul
 echo.
-echo ✅ All containers stopped
+echo All containers stopped
 echo.
 
 REM ====================
@@ -129,7 +129,7 @@ echo.
 echo Cleaning build cache...
 docker builder prune -f
 echo.
-echo ✅ Old images removed
+echo Old images removed
 echo.
 
 REM ====================
@@ -159,7 +159,7 @@ if errorlevel 1 (
     exit /b 1
 )
 echo.
-echo ✅ Build successful!
+echo Build successful!
 echo.
 
 REM ====================
@@ -181,10 +181,10 @@ if errorlevel 1 (
     exit /b 1
 )
 echo.
-echo ✅ Containers started!
+echo Containers started!
 echo.
 
-echo Waiting for startup (15 seconds)...
+echo Waiting for startup (15 seconds^)...
 timeout /t 15 /nobreak >nul
 echo.
 
@@ -254,28 +254,28 @@ REM ====================
 REM SUMMARY
 REM ====================
 echo ========================================
-echo  ✅ DEPLOYMENT COMPLETE!
+echo  DEPLOYMENT COMPLETE!
 echo ========================================
 echo.
 echo Mode: %MODE_NAME%
 echo.
 echo Services running:
-echo   - PostgreSQL (port 5432)
-    - Redis (port 6379)
+echo   - PostgreSQL ^(port 5432^)
+echo   - Redis ^(port 6379^)
 
 if "%MODE%"=="production" (
-    echo   - Master Bot (Telegram)
-    echo   - Master Bot API (port 8000)
-    echo   - Sales Bot (Telegram)
-    echo   - Sales Webhook (port 8001)
+    echo   - Master Bot ^(Telegram^)
+    echo   - Master Bot API ^(port 8000^)
+    echo   - Sales Bot ^(Telegram^)
+    echo   - Sales Webhook ^(port 8001^)
     echo.
     echo Next steps:
     echo   1. Configure Nginx for ports 8000 and 8001
-    echo   2. Set up YooKassa webhook: https://yourdomain.com/yookassa/webhook
+    echo   2. Set up YooKassa webhook
     echo   3. Test Master Bot API: http://localhost:8000/docs
 ) else (
-    echo   - Master Bot (Telegram)
-    echo   - Sales Bot (Telegram)
+    echo   - Master Bot ^(Telegram^)
+    echo   - Sales Bot ^(Telegram^)
     echo.
     echo Next steps:
     echo   1. Open Telegram and find your bots
@@ -286,9 +286,9 @@ if "%MODE%"=="production" (
 echo.
 echo Useful commands:
 echo   - View logs:     docker-compose %COMPOSE_FILE% logs -f
-    - Restart bot:   docker-compose %COMPOSE_FILE% restart bot-master
-    - Stop all:      docker-compose %COMPOSE_FILE% down
-    - Status:        docker-compose %COMPOSE_FILE% ps
+echo   - Restart bot:   docker-compose %COMPOSE_FILE% restart bot-master
+echo   - Stop all:      docker-compose %COMPOSE_FILE% down
+echo   - Status:        docker-compose %COMPOSE_FILE% ps
 echo.
 echo   - PostgreSQL:    docker exec -it booking-postgres psql -U booking_user -d booking_saas
 echo   - Redis:         docker exec -it booking-redis redis-cli
