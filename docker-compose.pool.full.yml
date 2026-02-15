@@ -1,0 +1,273 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: booking-postgres
+    environment:
+      POSTGRES_USER: booking_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SecurePass2026!}
+      POSTGRES_DB: booking_saas
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U booking_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - booking-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: booking-redis
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+    networks:
+      - booking-network
+
+  # === POOL MONITOR - автоматическое пополнение пула ===
+  pool-monitor:
+    build: .
+    container_name: booking-pool-monitor
+    command: python automation/pool_monitor.py
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SecurePass2026!}
+      
+      # Настройки монитора
+      INITIAL_POOL_SIZE: 10
+      MIN_FREE_BOTS: 3
+      MAX_TOTAL_BOTS: 100
+      SCALE_BATCH: 5
+      CHECK_INTERVAL: 30
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  # === SALES BOT ===
+  sales-bot:
+    build: .
+    container_name: booking-sales-bot
+    command: python sales_bot.py
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN_SALES}
+      ADMIN_IDS: ${ADMIN_IDS_SALES}
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID:-test_shop}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY:-test_secret}
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  # === MASTER BOT ===
+  master-bot:
+    build: .
+    container_name: booking-master-bot
+    command: python master_bot.py
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN_MASTER}
+      ADMIN_IDS: ${ADMIN_IDS_MASTER}
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  # === 10 ботов в пуле ===
+  bot-pool-1:
+    build: .
+    container_name: booking-bot-pool-1
+    hostname: booking-bot-pool-1
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "1"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-2:
+    build: .
+    container_name: booking-bot-pool-2
+    hostname: booking-bot-pool-2
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "2"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-3:
+    build: .
+    container_name: booking-bot-pool-3
+    hostname: booking-bot-pool-3
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "3"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-4:
+    build: .
+    container_name: booking-bot-pool-4
+    hostname: booking-bot-pool-4
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "4"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-5:
+    build: .
+    container_name: booking-bot-pool-5
+    hostname: booking-bot-pool-5
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "5"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-6:
+    build: .
+    container_name: booking-bot-pool-6
+    hostname: booking-bot-pool-6
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "6"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-7:
+    build: .
+    container_name: booking-bot-pool-7
+    hostname: booking-bot-pool-7
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "7"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-8:
+    build: .
+    container_name: booking-bot-pool-8
+    hostname: booking-bot-pool-8
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "8"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-9:
+    build: .
+    container_name: booking-bot-pool-9
+    hostname: booking-bot-pool-9
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "9"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  bot-pool-10:
+    build: .
+    container_name: booking-bot-pool-10
+    hostname: booking-bot-pool-10
+    command: python main_pool.py
+    environment:
+      BOT_POOL_ID: "10"
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+networks:
+  booking-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
