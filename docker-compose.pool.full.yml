@@ -35,6 +35,34 @@ services:
     networks:
       - booking-network
 
+  # === POOL MONITOR - автоматическое пополнение пула ===
+  pool-monitor:
+    build: .
+    container_name: booking-pool-monitor
+    command: python automation/pool_monitor.py
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SecurePass2026!}
+      
+      # Настройки монитора
+      INITIAL_POOL_SIZE: 10
+      MIN_FREE_BOTS: 3          # Минимум свободных ботов
+      MAX_TOTAL_BOTS: 100       # Максимум ботов в системе
+      SCALE_BATCH: 5            # Сколько добавлять за раз
+      CHECK_INTERVAL: 30        # Проверка каждые 30 секунд
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Доступ к Docker API
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  # === 10 ботов в пуле ===
   bot-pool-1:
     build: .
     container_name: booking-bot-pool-1
@@ -42,7 +70,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "1"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:
@@ -59,7 +87,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "2"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
@@ -75,7 +103,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "3"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
@@ -91,7 +119,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "4"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
@@ -107,7 +135,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "5"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
@@ -123,7 +151,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "6"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
@@ -139,7 +167,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "7"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
@@ -155,7 +183,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "8"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
@@ -171,7 +199,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "9"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
@@ -187,7 +215,7 @@ services:
     command: python main_pool.py
     environment:
       BOT_POOL_ID: "10"
-      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD}@postgres:5432/booking_saas
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
       REDIS_HOST: redis
     depends_on:
       - postgres
