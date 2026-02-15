@@ -22,25 +22,33 @@ import logging
 project_root = Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(project_root / "automation"))
 
-from automation.docker_deploy_manager import DockerDeployManager
-from config import Config
+try:
+    from docker_deploy_manager import DockerDeployManager
+    DOCKER_MANAGER_AVAILABLE = True
+except ImportError as e:
+    DOCKER_MANAGER_AVAILABLE = False
+    logging.warning(f"DockerDeployManager not available: {e}")
 
 logger = logging.getLogger(__name__)
 
 # Инициализация Docker Deploy Manager
-try:
-    docker_deploy = DockerDeployManager(
-        database_url=os.getenv(
-            "DATABASE_URL",
-            "postgresql://booking_user:SecurePass2026!@postgres:5432/booking_saas"
-        ),
-        schema=os.getenv("PG_SCHEMA", "master_bot")
-    )
-    DOCKER_AVAILABLE = True
-    logger.info("✅ DockerDeployManager initialized successfully")
-except Exception as e:
-    DOCKER_AVAILABLE = False
-    logger.error(f"❌ Failed to initialize DockerDeployManager: {e}")
+DOCKER_AVAILABLE = False
+docker_deploy = None
+
+if DOCKER_MANAGER_AVAILABLE:
+    try:
+        docker_deploy = DockerDeployManager(
+            database_url=os.getenv(
+                "DATABASE_URL",
+                "postgresql://booking_user:SecurePass2026!@postgres:5432/booking_saas"
+            ),
+            schema=os.getenv("PG_SCHEMA", "master_bot")
+        )
+        DOCKER_AVAILABLE = True
+        logger.info("✅ DockerDeployManager initialized successfully")
+    except Exception as e:
+        DOCKER_AVAILABLE = False
+        logger.error(f"❌ Failed to initialize DockerDeployManager: {e}")
 
 
 # Router
@@ -91,6 +99,20 @@ def client_actions_keyboard():
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="❌ Удалить")],
         [KeyboardButton(text="🔙 Назад")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+# Импорт main_menu_keyboard - будет использоваться позже
+def get_main_menu_keyboard():
+    """Get main menu keyboard from parent module"""
+    keyboard = [
+        [KeyboardButton(text="➕ Добавить клиента")],
+        [KeyboardButton(text="🐳 Docker Деплой")],
+        [KeyboardButton(text="💰 Принять платеж")],
+        [KeyboardButton(text="📊 Статистика")],
+        [KeyboardButton(text="👥 Список клиентов")],
+        [KeyboardButton(text="❓ Помощь")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -400,9 +422,7 @@ async def process_client_search(message: Message, state: FSMContext):
 async def back_to_main(message: Message, state: FSMContext):
     """ Вернуться в главное меню"""
     await state.clear()
-    # Вызов главного меню из master_bot.py
-    from master_bot import main_menu_keyboard
     await message.answer(
         "🏠 Главное меню",
-        reply_markup=main_menu_keyboard()
+        reply_markup=get_main_menu_keyboard()
     )
