@@ -1,6 +1,7 @@
 """Фасад для работы с базой данных через репозитории
 
 ✅ FIXED: Используется SchemaManager вместо aiosqlite
+✅ P1 FIX: Удален SQLite legacy code
 """
 
 import logging
@@ -27,6 +28,7 @@ class Database:
     Делегирует вызовы специализированным репозиториям.
     
     ✅ FIXED: Используется SchemaManager для инициализации
+    ✅ P1 FIX: Удален SQLite legacy code - только PostgreSQL
     """
 
     # === ИНИЦИАЛИЗАЦИЯ ===
@@ -38,179 +40,29 @@ class Database:
         
         ✅ FIXED: Используется SchemaManager для PostgreSQL
         ✅ FIXED: Автоматическое создание schema для клиента
+        ✅ P1 FIX: Удален SQLite fallback
         """
         from config import DB_TYPE, PG_SCHEMA
         
-        if DB_TYPE == "postgresql":
-            # ✅ NEW: Использовать SchemaManager
-            await SchemaManager.init_schema(PG_SCHEMA)
-            logging.info(
-                f"✅ Database initialized with PostgreSQL\n"
-                f"   • Schema: {PG_SCHEMA}\n"
-                f"   • All tables created with indexes"
+        if DB_TYPE != "postgresql":
+            raise RuntimeError(
+                "❌ SQLite is no longer supported!\n"
+                "   Please migrate to PostgreSQL.\n"
+                "   See: docs/POSTGRESQL_MIGRATION.md"
             )
-        else:
-            # ❌ Legacy SQLite fallback
-            logging.warning("⚠️ Using SQLite (legacy mode)")
-            await Database._init_sqlite()
+        
+        # ✅ P1: Используем SchemaManager
+        await SchemaManager.init_schema(PG_SCHEMA)
+        logging.info(
+            f"✅ Database initialized with PostgreSQL\n"
+            f"   • Schema: {PG_SCHEMA}\n"
+            f"   • All tables created with indexes"
+        )
 
         # Инициализация дополнительных таблиц
         await SettingsRepository.init_settings_table()
         await CalendarRepository.init_calendar_tables()
         logging.info("✅ All database tables initialized")
-
-    @staticmethod
-    async def _init_sqlite():
-        """
-        Legacy SQLite инициализация (только для совместимости)
-        
-        ⚠️ DEPRECATED: Используйте PostgreSQL для production
-        """
-        import aiosqlite
-        from config import DATABASE_PATH
-        
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            # Таблицы
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS bookings
-                (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT, time TEXT, user_id INTEGER, username TEXT,
-                created_at TEXT, service_id INTEGER DEFAULT 1,
-                duration_minutes INTEGER DEFAULT 60,
-                UNIQUE(date, time))"""
-            )
-
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS users
-                (user_id INTEGER PRIMARY KEY, first_seen TEXT)"""
-            )
-
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS analytics
-                (user_id INTEGER, event TEXT, data TEXT, timestamp TEXT)"""
-            )
-
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS feedback
-                (user_id INTEGER, booking_id INTEGER, rating INTEGER, timestamp TEXT)"""
-            )
-
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS blocked_slots
-                (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                time TEXT NOT NULL,
-                reason TEXT,
-                blocked_by INTEGER NOT NULL,
-                blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(date, time))"""
-            )
-
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS admin_sessions
-                (user_id INTEGER PRIMARY KEY, message_id INTEGER, updated_at TEXT)"""
-            )
-
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS admins
-                (user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                added_by INTEGER,
-                added_at TEXT NOT NULL,
-                role TEXT DEFAULT 'moderator')"""
-            )
-
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                admin_id INTEGER NOT NULL,
-                action TEXT NOT NULL,
-                target_id TEXT,
-                details TEXT,
-                timestamp TEXT NOT NULL
-            )"""
-            )
-
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS booking_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                booking_id INTEGER NOT NULL,
-                changed_by INTEGER NOT NULL,
-                changed_by_type TEXT NOT NULL,
-                action TEXT NOT NULL,
-                old_date TEXT,
-                old_time TEXT,
-                new_date TEXT,
-                new_time TEXT,
-                old_service_id INTEGER,
-                new_service_id INTEGER,
-                reason TEXT,
-                changed_at TIMESTAMP NOT NULL
-            )"""
-            )
-
-            # Индексы
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_bookings_date
-                ON bookings(date, time)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_bookings_user
-                ON bookings(user_id)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_bookings_service
-                ON bookings(service_id)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_analytics_user
-                ON analytics(user_id, event)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_blocked_date
-                ON blocked_slots(date, time)"""
-            )
-            await db.execute(
-                """CREATE UNIQUE INDEX IF NOT EXISTS idx_user_active_bookings
-                ON bookings(user_id, date, time)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_analytics_timestamp
-                ON analytics(timestamp)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_feedback_timestamp
-                ON feedback(timestamp)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_feedback_user
-                ON feedback(user_id)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_bookings_date_time
-                ON bookings(date, time)"""
-            )
-            await db.execute(
-                """CREATE INDEX IF NOT EXISTS idx_admins_added
-                ON admins(added_at)"""
-            )
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_admin ON audit_log(admin_id)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_booking_history_booking ON booking_history(booking_id)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_booking_history_changed_by ON booking_history(changed_by)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_booking_history_timestamp ON booking_history(changed_at)"
-            )
-
-            await db.commit()
-            logging.info("SQLite database initialized (legacy)")
 
     # === БРОНИРОВАНИЯ (делегирование в BookingRepository) ===
 
