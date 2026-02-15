@@ -1,6 +1,7 @@
 """Главный файл приложения
 
 ✅ P1 FIX: Добавлен persistent jobstore для APScheduler
+✅ P1 FIX: Redis-based rate limiting для multi-instance deployment
 """
 
 import asyncio
@@ -491,6 +492,7 @@ async def start_bot():
     
     ✅ ИСПРАВЛЕНО: Правильный shutdown для Redis и PostgreSQL pool
     ✅ P1 FIX: Добавлен persistent scheduler
+    ✅ P1 FIX: Redis-based rate limiting
     """
     check_and_restore_database()
 
@@ -526,8 +528,22 @@ async def start_bot():
 
     # Middlewares (порядок важен!)
     dp.callback_query.middleware(MessageCleanupMiddleware(ttl_hours=48))
-    dp.message.middleware(RateLimitMiddleware(rate_limit=RATE_LIMIT_MESSAGE))
-    dp.callback_query.middleware(RateLimitMiddleware(rate_limit=RATE_LIMIT_CALLBACK))
+    
+    # ✅ P1 FIX: Передаём Redis client в RateLimitMiddleware
+    dp.message.middleware(
+        RateLimitMiddleware(
+            rate_limit=RATE_LIMIT_MESSAGE,
+            redis_client=redis_client,
+            key_prefix=f"{REDIS_KEY_PREFIX}:ratelimit"
+        )
+    )
+    dp.callback_query.middleware(
+        RateLimitMiddleware(
+            rate_limit=RATE_LIMIT_CALLBACK,
+            redis_client=redis_client,
+            key_prefix=f"{REDIS_KEY_PREFIX}:ratelimit"
+        )
+    )
 
     # Централизованная обработка ошибок
     @dp.errors()
@@ -567,7 +583,7 @@ async def start_bot():
     logger.info("🤖 Bot started successfully")
     logger.info(
         f"Database: {DB_TYPE.upper()} | "
-        "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
+        "Features: Services, Audit Log, Universal Editor, Redis Rate Limiting (P1), "
         "Auto Cleanup, Reminders (24h/2h/1h), Booking History, Settings, Calendar, "
         "Slot Intervals, Hybrid i18n (YAML + DB with Admin UI), Persistent Scheduler (P1)"
     )
@@ -578,7 +594,7 @@ async def start_bot():
         "Fixed SQLite migrations skip for PostgreSQL"  
     )
     logger.info(
-        "✅ P1 Fixes Applied: PostgreSQL Persistent Jobstore (jobs survive restarts)"
+        "✅ P1 Fixes Applied: PostgreSQL Persistent Jobstore + Redis-based Rate Limiting"
     )
     
     if SENTRY_ENABLED:
