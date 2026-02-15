@@ -10,32 +10,25 @@
 ┌─────────────────────────────────────────────┐
 │  При старте системы                         │
 ├─────────────────────────────────────────────┤
-│  PostgreSQL + Redis + 10 Bot Containers     │
-│  Все боты в режиме WAITING                  │
+│  PostgreSQL + Redis + Pool Monitor      │
+│  + 10 Bot Containers (WAITING)           │
 └─────────────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────────────┐
-│  Клиент покупает через Sales Bot            │
-│  • Создаёт бота (@BotFather)                │
-│  • Даёт токен                               │
-│  • Оплачивает                               │
+│  8 клиентов купили → 8 ботов ACTIVE      │
+│  Свободно: 2 бота                         │
 └─────────────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────────────┐
-│  Sales Bot → находит свободный контейнер    │
-│  → отправляет конфигурацию в Redis          │
+│  Pool Monitor обнаружил:                  │
+│  ⚠️ 2 < 3 (MIN_FREE_BOTS)                  │
+│  🚀 Автоматически запускает 5 ботов      │
 └─────────────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────────────┐
-│  Контейнер получает конфигурацию (5 сек)    │
-│  → активирует бота                          │
-│  → создаёт PostgreSQL schema                │
-│  → запускает полную логику                  │
-└─────────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────────┐
-│  Клиент получает уведомление                │
-│  🎉 Ваш бот готов! @your_bot                │
+│  Система готова к новым клиентам!         │
+│  • Всего: 15 ботов                        │
+│  • Свободно: 7 ботов                      │
 └─────────────────────────────────────────────┘
 ```
 
@@ -45,9 +38,31 @@
 |---------------|---------------|----------|
 | Время активации | 60-120 сек | **5-10 сек** |
 | Надёжность | Зависит от Docker API | ✅ Высокая |
+| Автомасштабирование | Нет | ✅ **Автоматическое** |
 | Сложность | Deploy Worker на хосте | ✅ Простая |
-| Масштабируемость | Требует управления | ✅ Легко (просто добавить контейнеры) |
-| Потребление ресурсов | Экономно | Боты работают постоянно |
+| Масштабируемость | Требует управления | ✅ **До 100 ботов автоматом** |
+
+## 🔄 Автоматическое пополнение пула
+
+**Pool Monitor** - сервис, который постоянно мониторит пул и автоматически запускает новые контейнеры:
+
+### Принцип работы:
+
+1. **Проверка каждые 30 секунд**
+2. **Если свободных ботов < 3** → запускает 5 новых
+3. **Максимум 100 ботов** в системе
+
+### Настройки:
+
+```bash
+# В docker-compose.pool.full.yml
+MIN_FREE_BOTS: 3          # Порог для масштабирования
+MAX_TOTAL_BOTS: 100       # Максимум ботов
+SCALE_BATCH: 5            # Сколько добавлять за раз
+CHECK_INTERVAL: 30        # Проверка каждые N секунд
+```
+
+📚 **Подробнее:** [docs/POOL_AUTOSCALING.md](docs/POOL_AUTOSCALING.md)
 
 ## 🚀 Быстрый старт
 
@@ -68,13 +83,7 @@ nano .env
 
 **Обязательные переменные:**
 ```bash
-# PostgreSQL
 POSTGRES_PASSWORD=YourSecurePassword123!
-
-# Sales Bot (если используется)
-BOT_TOKEN_SALES=123456:ABC-your-sales-bot-token
-YOOKASSA_SHOP_ID=your_shop_id
-YOOKASSA_SECRET_KEY=your_secret_key
 ```
 
 ### 3. Запустить систему
@@ -90,12 +99,13 @@ chmod +x start_pool.sh
 # Все контейнеры
 docker-compose -f docker-compose.pool.full.yml ps
 
-# Логи первого бота
-docker-compose -f docker-compose.pool.full.yml logs bot-pool-1
+# Pool Monitor
+docker-compose -f docker-compose.pool.full.yml logs pool-monitor
+# Должно быть: 🔍 POOL MONITOR STARTED
 
-# Должно быть:
-# 🕐 BOT CONTAINER STARTED IN WAITING MODE
-# ⏳ Waiting for configuration from Sales Bot...
+# Боты
+docker-compose -f docker-compose.pool.full.yml logs bot-pool-1
+# Должно быть: 🕐 BOT CONTAINER STARTED IN WAITING MODE
 ```
 
 ## 📁 Структура проекта
@@ -104,11 +114,13 @@ docker-compose -f docker-compose.pool.full.yml logs bot-pool-1
 new12_02/
 ├── main_pool.py                    # Бот с режимом ожидания
 ├── automation/
-│   └── bot_pool_manager.py        # Менеджер пула ботов
-├── docker-compose.pool.full.yml   # 10 ботов + инфраструктура
+│   ├── bot_pool_manager.py        # Менеджер пула
+│   └── pool_monitor.py            # Автомасштабирование ⚡
+├── docker-compose.pool.full.yml   # 10 ботов + Pool Monitor
 ├── start_pool.sh                  # Скрипт запуска
 ├── docs/
-│   └── BOT_POOL_SETUP.md         # Полная документация
+│   ├── BOT_POOL_SETUP.md         # Полная документация
+│   └── POOL_AUTOSCALING.md       # Автомасштабирование ⚡
 └── README_POOL.md                # Этот файл
 ```
 
@@ -128,48 +140,20 @@ new12_02/
 - `get_pool_status()` - получить статус пула
 - `deactivate_bot()` - вернуть бот в пул
 
-### 3. docker-compose.pool.full.yml
+### 3. pool_monitor.py ⚡ Новое!
+
+Автоматическое пополнение пула:
+- Мониторит количество свободных ботов
+- Автоматически запускает новые контейнеры
+- Масштабирует до 100 ботов
+
+### 4. docker-compose.pool.full.yml
 
 Конфигурация с:
 - PostgreSQL 16
 - Redis 7
+- **Pool Monitor** ⚡
 - 10 контейнеров ботов в режиме WAITING
-
-## 💡 Использование
-
-### Активация бота (из Sales Bot)
-
-```python
-from automation.bot_pool_manager import BotPoolManager
-
-pool_manager = BotPoolManager(pool_size=10)
-
-# 1. Найти свободный бот
-free_bot = await pool_manager.find_free_bot()
-# {'container_id': 'booking-bot-pool-3', 'pool_id': '3'}
-
-# 2. Активировать
-await pool_manager.activate_bot(
-    container_id=free_bot['container_id'],
-    bot_token='123456:ABC...',
-    admin_telegram_id=987654321,
-    client_id='client_003',
-    company_name='Салон Анны'
-)
-
-# 3. Бот активируется через 5-10 секунд!
-```
-
-### Проверка статуса пула
-
-```python
-status = await pool_manager.get_pool_status()
-print(f"Свободно: {status['waiting']}/10")
-print(f"Занято: {status['active']}/10")
-
-for bot in status['bots']:
-    print(f"Bot #{bot['pool_id']}: {bot['status']}")
-```
 
 ## 📊 Мониторинг
 
@@ -179,11 +163,14 @@ for bot in status['bots']:
 # Статус всех контейнеров
 docker-compose -f docker-compose.pool.full.yml ps
 
+# Логи Pool Monitor
+docker-compose -f docker-compose.pool.full.yml logs -f pool-monitor
+
 # Логи конкретного бота
 docker-compose -f docker-compose.pool.full.yml logs -f bot-pool-5
 
-# Только активации
-docker-compose -f docker-compose.pool.full.yml logs | grep "BOT ACTIVATED"
+# События масштабирования
+docker-compose -f docker-compose.pool.full.yml logs pool-monitor | grep "Scaling up"
 ```
 
 ### Через Redis
@@ -196,7 +183,6 @@ KEYS bot_status:*
 
 # Конкретный статус
 GET bot_status:booking-bot-pool-3
-# {"status":"active","client_id":"client_003"}
 ```
 
 ### Через Master Bot
@@ -205,10 +191,8 @@ GET bot_status:booking-bot-pool-3
 /pool - показать статус пула
 
 🏊 СТАТУС ПУЛА БОТОВ
-
-📊 Всего: 10
-⚪ Свободно: 7
-🟢 Занято: 3
+⚪ Свободно: 7/15
+🟢 Занято: 8/15
 ```
 
 ## 🔐 Безопасность
@@ -224,32 +208,6 @@ GET bot_status:booking-bot-pool-3
 - Передаются через Redis с **TTL=300 сек**
 - Удаляются сразу после получения контейнером
 - Никогда не логируются в открытом виде
-
-## 📈 Масштабирование
-
-### Увеличить пул до 20 ботов
-
-1. Добавить в `docker-compose.pool.full.yml`:
-```yaml
-bot-pool-11:
-  build: .
-  container_name: booking-bot-pool-11
-  hostname: booking-bot-pool-11
-  command: python main_pool.py
-  environment:
-    BOT_POOL_ID: "11"
-  # ...
-```
-
-2. Обновить `BotPoolManager`:
-```python
-pool_manager = BotPoolManager(pool_size=20)
-```
-
-3. Перезапустить:
-```bash
-./start_pool.sh
-```
 
 ## 🛠 Troubleshooting
 
@@ -267,38 +225,37 @@ docker exec -it booking-redis redis-cli
 GET bot_config:booking-bot-pool-3
 ```
 
+### Pool Monitor не запускает ботов
+
+```bash
+# Проверить доступ к Docker socket
+docker inspect booking-pool-monitor | grep docker.sock
+
+# Логи монитора
+docker logs booking-pool-monitor
+```
+
 ### Все боты заняты
 
 ```bash
-# Добавить больше ботов или перезапустить неиспользуемые
-docker-compose -f docker-compose.pool.full.yml restart bot-pool-1
-```
+# Pool Monitor автоматически добавит новые!
+# Просто подождите 30 секунд
 
-### Redis не подключается
-
-```bash
-# Проверить Redis
-docker ps | grep redis
-docker logs booking-redis
-
-# Перезапустить
-docker-compose -f docker-compose.pool.full.yml restart redis
+# Или увеличьте MAX_TOTAL_BOTS в docker-compose
 ```
 
 ## 📚 Документация
 
 - [Полная инструкция по настройке](docs/BOT_POOL_SETUP.md)
-- [Архитектура системы](docs/ARCHITECTURE.md)
-- [API Reference](docs/API.md)
+- [Автомасштабирование](docs/POOL_AUTOSCALING.md) ⚡
 
 ## 🎯 Production рекомендации
 
-1. ✅ Увеличить пул до **50-100 ботов** для высокой нагрузки
-2. ✅ Настроить **автоматическое масштабирование** (Kubernetes)
-3. ✅ Добавить **мониторинг** (Prometheus + Grafana)
-4. ✅ Настроить **алерты** при заполнении пула > 80%
-5. ✅ **Бэкапы PostgreSQL** ежедневно
-6. ✅ **Redis Sentinel** для высокой доступности
+1. ✅ Увеличьте `MAX_TOTAL_BOTS` до **500** для высокой нагрузки
+2. ✅ Настройте **алерты** при заполнении > 80%
+3. ✅ Добавьте **мониторинг** (Prometheus + Grafana)
+4. ✅ **Бэкапы PostgreSQL** ежедневно
+5. ✅ **Redis Sentinel** для высокой доступности
 
 ## 📝 Лицензия
 
@@ -310,6 +267,6 @@ MIT License
 
 ---
 
-**Версия:** 1.0.0  
+**Версия:** 1.1.0 (с автомасштабированием) ⚡  
 **Дата:** Февраль 2026  
 **Автор:** balzampsilo-sys
