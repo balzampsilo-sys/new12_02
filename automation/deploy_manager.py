@@ -168,7 +168,7 @@ class DeploymentManager:
         print("🔨 Сборка Docker image...")
         try:
             subprocess.run(
-                ["docker-compose", "build", "--no-cache"],
+                ["docker", "compose", "build", "--no-cache"],
                 cwd=client_dir,
                 check=True,
                 capture_output=True
@@ -180,7 +180,7 @@ class DeploymentManager:
         print("🚀 Запуск контейнера...")
         try:
             subprocess.run(
-                ["docker-compose", "up", "-d"],
+                ["docker", "compose", "up", "-d"],
                 cwd=client_dir,
                 check=True,
                 capture_output=True
@@ -355,7 +355,7 @@ networks:
         redis_compose = self.project_root / "docker-compose.redis.yml"
         if redis_compose.exists():
             subprocess.run(
-                ["docker-compose", "-f", str(redis_compose), "up", "-d"],
+                ["docker", "compose", "-f", str(redis_compose), "up", "-d"],
                 cwd=self.project_root,
                 check=True
             )
