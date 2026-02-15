@@ -48,13 +48,53 @@ services:
       
       # Настройки монитора
       INITIAL_POOL_SIZE: 10
-      MIN_FREE_BOTS: 3          # Минимум свободных ботов
-      MAX_TOTAL_BOTS: 100       # Максимум ботов в системе
-      SCALE_BATCH: 5            # Сколько добавлять за раз
-      CHECK_INTERVAL: 30        # Проверка каждые 30 секунд
+      MIN_FREE_BOTS: 3
+      MAX_TOTAL_BOTS: 100
+      SCALE_BATCH: 5
+      CHECK_INTERVAL: 30
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # Доступ к Docker API
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  # === SALES BOT ===
+  sales-bot:
+    build: .
+    container_name: booking-sales-bot
+    command: python sales_bot.py
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN_SALES}
+      ADMIN_IDS: ${ADMIN_IDS_SALES}
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID:-test_shop}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY:-test_secret}
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - booking-network
+
+  # === MASTER BOT ===
+  master-bot:
+    build: .
+    container_name: booking-master-bot
+    command: python master_bot.py
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN_MASTER}
+      ADMIN_IDS: ${ADMIN_IDS_MASTER}
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
     depends_on:
       - postgres
       - redis
