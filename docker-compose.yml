@@ -77,6 +77,10 @@ services:
       REDIS_DB: 0
       REDIS_KEY_PREFIX: "master_bot:"
       
+      # Docker API (для Windows - через TCP)
+      # Включите в Docker Desktop: Settings > General > Expose daemon on tcp://localhost:2375
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+      
       # Business Logic
       TIMEZONE: ${TIMEZONE:-Europe/Moscow}
       
@@ -95,7 +99,10 @@ services:
     volumes:
       - ./logs:/app/logs
       # 🔥 КРИТИЧНО: Docker socket для автономного деплоя клиентских ботов
-      - /var/run/docker.sock:/var/run/docker.sock
+      # 👍 Windows: два слэша для совместимости
+      - //var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     logging:
       driver: "json-file"
       options:
