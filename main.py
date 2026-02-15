@@ -1,4 +1,7 @@
-"""Главный файл приложения"""
+"""Главный файл приложения
+
+✅ P1 FIX: Добавлен persistent jobstore для APScheduler
+"""
 
 import asyncio
 import logging
@@ -20,6 +23,7 @@ from config import (
     BOT_TOKEN,
     CLIENT_ID,
     DATABASE_PATH,
+    DATABASE_URL,  # ✅ P1: Для PostgreSQL jobstore
     DB_TYPE,
     RATE_LIMIT_CALLBACK,
     RATE_LIMIT_MESSAGE,
@@ -194,6 +198,54 @@ async def init_database():
         logger.info("SQLite database initialized with migrations")
     else:
         logger.info("PostgreSQL database initialized (schema auto-created by db_adapter)")
+
+
+def create_scheduler() -> AsyncIOScheduler:
+    """Создание scheduler с persistent jobstore
+    
+    ✅ P1 FIX: Добавлен PostgreSQL jobstore для persistence
+    
+    Returns:
+        AsyncIOScheduler с правильным jobstore
+    """
+    jobstores = {}
+    
+    # ✅ P1: Используем PostgreSQL jobstore для persistence
+    if DB_TYPE == "postgresql":
+        try:
+            from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+            
+            # Создаём jobstore с PostgreSQL connection string
+            jobstores["default"] = SQLAlchemyJobStore(
+                url=DATABASE_URL,
+                tablename="apscheduler_jobs"  # Таблица для хранения jobs
+            )
+            
+            logger.info(
+                "✅ Using PostgreSQL jobstore for APScheduler\n"
+                "   • Jobs will persist across restarts\n"
+                "   • Table: apscheduler_jobs"
+            )
+        except ImportError:
+            logger.warning(
+                "⚠️ SQLAlchemy not installed - using in-memory jobstore\n"
+                "   Install with: pip install apscheduler[sqlalchemy]"
+            )
+            jobstores = {}  # Fallback to MemoryJobStore
+        except Exception as e:
+            logger.error(f"Failed to create PostgreSQL jobstore: {e}")
+            logger.warning("Falling back to in-memory jobstore")
+            jobstores = {}  # Fallback to MemoryJobStore
+    else:
+        logger.info("SQLite mode - using in-memory jobstore (jobs will be lost on restart)")
+    
+    scheduler = AsyncIOScheduler(
+        jobstores=jobstores,
+        executors={"default": {"type": "threadpool", "max_workers": 1}},
+        job_defaults={"coalesce": False, "max_instances": 1},
+    )
+    
+    return scheduler
 
 
 def setup_backup_job(scheduler: AsyncIOScheduler, backup_service: BackupService):
@@ -438,6 +490,7 @@ async def start_bot():
     """Запуск бота с retry логикой и централизованной обработкой ошибок
     
     ✅ ИСПРАВЛЕНО: Правильный shutdown для Redis и PostgreSQL pool
+    ✅ P1 FIX: Добавлен persistent scheduler
     """
     check_and_restore_database()
 
@@ -446,11 +499,8 @@ async def start_bot():
     storage, redis_client = await get_storage()
     dp = Dispatcher(storage=storage)
 
-    scheduler = AsyncIOScheduler(
-        jobstores={},
-        executors={"default": {"type": "threadpool", "max_workers": 1}},
-        job_defaults={"coalesce": False, "max_instances": 1},
-    )
+    # ✅ P1 FIX: Создаём scheduler с persistent jobstore
+    scheduler = create_scheduler()
 
     await init_database()
     
@@ -519,13 +569,16 @@ async def start_bot():
         f"Database: {DB_TYPE.upper()} | "
         "Features: Services, Audit Log, Universal Editor, Rate Limiting, "
         "Auto Cleanup, Reminders (24h/2h/1h), Booking History, Settings, Calendar, "
-        "Slot Intervals, Hybrid i18n (YAML + DB with Admin UI)"
+        "Slot Intervals, Hybrid i18n (YAML + DB with Admin UI), Persistent Scheduler (P1)"
     )
     logger.info(
         "✅ P0 Fixes Applied: Event Loop (asyncio.get_running_loop) + "
         "2h Reminders + Transaction Timeouts + Redis Leak + Migrations v008-v009 + "
         "PostgreSQL Migration with Connection Pooling + PrefixedRedisStorage (Unlimited Clients) + "
-        "Fixed SQLite migrations skip for PostgreSQL"
+        "Fixed SQLite migrations skip for PostgreSQL"  
+    )
+    logger.info(
+        "✅ P1 Fixes Applied: PostgreSQL Persistent Jobstore (jobs survive restarts)"
     )
     
     if SENTRY_ENABLED:
