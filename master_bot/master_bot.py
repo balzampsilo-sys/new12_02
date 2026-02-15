@@ -5,6 +5,7 @@ Master Bot - Автоматический деплой клиентов чере
 Функции:
 - Прием заявок на новых клиентов (через Redis Queue)
 - Автоматический деплой ботов (через Deploy Worker)
+- Автономный Docker деплой (через Docker API)
 - Управление подписками
 - Интеграция с платежами
 - Статистика и мониторинг
@@ -58,6 +59,16 @@ bot = Bot(token=MASTER_BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
+# === DOCKER HANDLERS ===
+try:
+    from master_bot.handlers.docker_deploy_handlers import router as docker_router
+    dp.include_router(docker_router)
+    logger.info("✅ Docker autonomous deployment handlers registered")
+except ImportError as e:
+    logger.warning(f"⚠️ Docker handlers not available: {e}")
+except Exception as e:
+    logger.error(f"❌ Failed to load Docker handlers: {e}")
+
 # ✅ PostgreSQL подключение из ENV
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -104,6 +115,7 @@ class PaymentStates(StatesGroup):
 def main_menu_keyboard():
     keyboard = [
         [KeyboardButton(text="➕ Добавить клиента")],
+        [KeyboardButton(text="🐳 Docker Деплой")],  # Автономный быстрый деплой
         [KeyboardButton(text="💰 Принять платеж")],
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="👥 Список клиентов")],
@@ -166,6 +178,7 @@ async def cmd_start(message: types.Message):
         "🤖 МАСТЕР-БОТ ДЛЯ УПРАВЛЕНИЯ КЛИЕНТАМИ\n\n"
         "Что я умею:\n"
         "➕ Автоматически деплоить новых клиентов\n"
+        "🐳 Быстрый Docker деплой (30-60 сек)\n"
         "💰 Принимать платежи и продлевать подписки\n"
         "📊 Показывать статистику\n"
         "👥 Управлять клиентами\n\n"
@@ -191,7 +204,7 @@ async def cmd_help(message: types.Message):
 /queue - Статус очереди деплоя
 /help - Эта справка
 
-Добавление клиента:
+Добавление клиента (очередь):
 1. Нажмите "➕ Добавить клиента"
 2. Отправьте токен бота (от @BotFather)
 3. Отправьте Telegram ID клиента (от @userinfobot)
@@ -199,6 +212,12 @@ async def cmd_help(message: types.Message):
 5. Подтвердите - задача добавится в очередь
 6. Deploy Worker автоматически выполнит деплой
 7. Вы получите уведомление о результате
+
+Быстрый Docker деплой:
+1. Нажмите "🐳 Docker Деплой"
+2. Выберите "🚀 Создать бота (быстро)"
+3. Следуйте инструкциям
+4. Бот будет развёрнут за 30-60 секунд!
 
 Прием платежа:
 1. Нажмите "💰 Принять платеж"
@@ -209,12 +228,13 @@ async def cmd_help(message: types.Message):
 
 Архитектура:
 • Master Bot (Docker) - управление
+• Docker API - автономный деплой
 • Redis Queue - очередь задач
 • Deploy Worker (HOST) - деплой клиентов
 • PostgreSQL - база данных
 
 Поддержка: 
-https://github.com/balzampsilo-sys/new12_02/blob/main/QUEUE_SETUP.md
+https://github.com/balzampsilo-sys/new12_02/blob/main/DOCKER_HANDLERS_INTEGRATION.md
     """
     await message.answer(help_text)
 
