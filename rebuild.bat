@@ -4,15 +4,16 @@ REM  FULL PLATFORM REBUILD SCRIPT (Windows)
 REM ========================================
 REM 
 REM Usage:
-REM   rebuild.bat              - Development mode (basic bots)
- REM   rebuild.bat production   - Production mode (all services)
+REM   rebuild.bat              - Development mode
+REM   rebuild.bat production   - Production mode
 REM 
 REM What it does:
- REM   1. Checks prerequisites (.env, requirements.txt, Docker)
-REM   2. Starts PostgreSQL and Redis infrastructure
-REM   3. Waits for DB/Redis to be healthy
-REM   4. Rebuilds and starts bot containers
-REM   5. Shows status and logs
+REM   1. Checks prerequisites (.env, Docker)
+REM   2. Stops all containers
+REM   3. Cleans old images and cache
+REM   4. Rebuilds from scratch
+REM   5. Starts all services
+REM   6. Shows status and logs
 REM 
 REM ========================================
 
@@ -45,7 +46,7 @@ echo  STEP 0: PRE-FLIGHT CHECKS
 echo ==================================
 echo.
 
-echo [1/4] Checking Docker...
+echo [1/3] Checking Docker...
 docker version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Docker is not running!
@@ -56,25 +57,35 @@ if errorlevel 1 (
 )
 echo       Docker: OK
 
-echo [2/4] Checking .env file...
+echo [2/3] Checking .env file...
 if not exist ".env" (
-    echo ERROR: .env file not found!
+    echo WARNING: .env file not found!
     echo.
-    echo Please create .env from .env.example:
-    echo    copy .env.example .env
-    echo.
-    echo Then edit .env and set your tokens:
-    echo    - BOT_TOKEN_MASTER
-    echo    - BOT_TOKEN_SALES
-    echo    - POSTGRES_PASSWORD
-    echo    - YOOKASSA_SHOP_ID
-    echo    - YOOKASSA_SECRET_KEY
-    pause
-    exit /b 1
+    echo Creating .env from .env.example...
+    if exist ".env.example" (
+        copy .env.example .env >nul
+        echo       .env created! Please edit it before continuing.
+        echo.
+        echo Required tokens:
+        echo   - BOT_TOKEN_MASTER
+        echo   - BOT_TOKEN_SALES
+        echo   - ADMIN_IDS_MASTER
+        echo   - ADMIN_IDS_SALES
+        echo   - POSTGRES_PASSWORD
+        echo.
+        choice /C YN /M "Do you want to edit .env now"
+        if errorlevel 2 goto skip_edit
+        if errorlevel 1 notepad .env
+        :skip_edit
+    ) else (
+        echo ERROR: .env.example not found!
+        pause
+        exit /b 1
+    )
 )
 echo       .env: OK
 
-echo [3/4] Checking requirements.txt...
+echo [3/3] Checking requirements.txt...
 if not exist "requirements.txt" (
     echo ERROR: requirements.txt not found!
     echo.
@@ -83,20 +94,6 @@ if not exist "requirements.txt" (
     exit /b 1
 )
 echo       requirements.txt: OK
-
-echo [4/4] Checking Docker network...
-docker network inspect booking-network >nul 2>&1
-if errorlevel 1 (
-    echo       Creating booking-network...
-    docker network create booking-network >nul 2>&1
-    if errorlevel 1 (
-        echo       WARNING: Could not create network (may already exist)
-    ) else (
-        echo       Network created: OK
-    )
-) else (
-    echo       booking-network: OK
-)
 echo.
 echo ✅ All pre-flight checks passed!
 echo.
@@ -109,13 +106,8 @@ echo  STEP 1: STOPPING CONTAINERS
 echo ==================================
 echo.
 
-echo Stopping bot containers...
+echo Stopping all containers...
 docker-compose %COMPOSE_FILE% down 2>nul
-echo.
-
-echo Stopping infrastructure...
-docker-compose -f docker-compose.postgres.yml down 2>nul
-docker-compose -f docker-compose.redis.yml down 2>nul
 echo.
 echo ✅ All containers stopped
 echo.
@@ -141,92 +133,10 @@ echo ✅ Old images removed
 echo.
 
 REM ====================
-REM STEP 3: START INFRASTRUCTURE
+REM STEP 3: BUILD IMAGES
 REM ====================
 echo ==================================
-echo  STEP 3: STARTING INFRASTRUCTURE
-echo ==================================
-echo.
-
-echo [1/2] Starting PostgreSQL...
-docker-compose -f docker-compose.postgres.yml up -d
-if errorlevel 1 (
-    echo.
-    echo ERROR: Failed to start PostgreSQL!
-    echo.
-    echo Troubleshooting:
-    echo   1. Check docker-compose.postgres.yml exists
-    echo   2. Check logs: docker-compose -f docker-compose.postgres.yml logs
-    echo   3. Try: docker-compose -f docker-compose.postgres.yml up
-    pause
-    exit /b 1
-)
-echo       PostgreSQL starting...
-echo.
-
-echo [2/2] Starting Redis...
-docker-compose -f docker-compose.redis.yml up -d
-if errorlevel 1 (
-    echo.
-    echo ERROR: Failed to start Redis!
-    echo.
-    echo Troubleshooting:
-    echo   1. Check docker-compose.redis.yml exists
-    echo   2. Check logs: docker-compose -f docker-compose.redis.yml logs
-    pause
-    exit /b 1
-)
-echo       Redis starting...
-echo.
-
-echo Waiting for infrastructure to be healthy (15 seconds)...
-timeout /t 15 /nobreak >nul
-echo.
-
-REM ====================
-REM STEP 4: VERIFY INFRASTRUCTURE
-REM ====================
-echo ==================================
-echo  STEP 4: VERIFYING INFRASTRUCTURE
-echo ==================================
-echo.
-
-echo [1/2] Checking PostgreSQL health...
-docker exec postgres-shared pg_isready -U booking_admin >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: PostgreSQL is not healthy!
-    echo.
-    echo Checking logs:
-    docker-compose -f docker-compose.postgres.yml logs --tail=20
-    echo.
-    echo Please fix PostgreSQL and try again.
-    pause
-    exit /b 1
-)
-echo       PostgreSQL: HEALTHY ✅
-
-echo [2/2] Checking Redis health...
-docker exec booking-bot-redis-shared redis-cli ping >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Redis is not healthy!
-    echo.
-    echo Checking logs:
-    docker-compose -f docker-compose.redis.yml logs --tail=20
-    echo.
-    echo Please fix Redis and try again.
-    pause
-    exit /b 1
-)
-echo       Redis: HEALTHY ✅
-echo.
-echo ✅ Infrastructure ready!
-echo.
-
-REM ====================
-REM STEP 5: BUILD BOT IMAGES
-REM ====================
-echo ==================================
-echo  STEP 5: BUILDING BOT IMAGES
+echo  STEP 3: BUILDING IMAGES
 echo ==================================
 echo.
 echo This will take 2-3 minutes...
@@ -253,17 +163,17 @@ echo ✅ Build successful!
 echo.
 
 REM ====================
-REM STEP 6: START BOT CONTAINERS
+REM STEP 4: START CONTAINERS
 REM ====================
 echo ==================================
-echo  STEP 6: STARTING BOT CONTAINERS
+echo  STEP 4: STARTING CONTAINERS
 echo ==================================
 echo.
 
 docker-compose %COMPOSE_FILE% up -d
 if errorlevel 1 (
     echo.
-    echo ERROR: Failed to start bot containers!
+    echo ERROR: Failed to start containers!
     echo.
     echo Check logs:
     echo    docker-compose %COMPOSE_FILE% logs
@@ -271,46 +181,40 @@ if errorlevel 1 (
     exit /b 1
 )
 echo.
-echo ✅ Bots started!
+echo ✅ Containers started!
 echo.
 
-echo Waiting for startup (10 seconds)...
-timeout /t 10 /nobreak >nul
+echo Waiting for startup (15 seconds)...
+timeout /t 15 /nobreak >nul
 echo.
 
 REM ====================
-REM STEP 7: VERIFY DEPLOYMENT
+REM STEP 5: VERIFY DEPLOYMENT
 REM ====================
 echo ==================================
-echo  STEP 7: DEPLOYMENT STATUS
+echo  STEP 5: DEPLOYMENT STATUS
 echo ==================================
 echo.
 
-echo [Infrastructure]
-docker-compose -f docker-compose.postgres.yml ps
-echo.
-docker-compose -f docker-compose.redis.yml ps
-echo.
-
-echo [Bots - %MODE_NAME%]
+echo [All Services - %MODE_NAME%]
 docker-compose %COMPOSE_FILE% ps
 echo.
 
 REM ====================
-REM STEP 8: SHOW LOGS
+REM STEP 6: SHOW LOGS
 REM ====================
 echo ==================================
-echo  STEP 8: RECENT LOGS
+echo  STEP 6: RECENT LOGS
 echo ==================================
 echo.
 
 if "%MODE%"=="production" (
     echo [PostgreSQL]
-    docker-compose -f docker-compose.postgres.yml logs --tail=10 postgres
+    docker-compose %COMPOSE_FILE% logs --tail=10 postgres
     echo.
     
     echo [Redis]
-    docker-compose -f docker-compose.redis.yml logs --tail=10 redis-shared
+    docker-compose %COMPOSE_FILE% logs --tail=10 redis
     echo.
     
     echo [Master Bot]
@@ -329,6 +233,14 @@ if "%MODE%"=="production" (
     docker-compose %COMPOSE_FILE% logs --tail=20 sales-webhook
     echo.
 ) else (
+    echo [PostgreSQL]
+    docker-compose logs --tail=10 postgres
+    echo.
+    
+    echo [Redis]
+    docker-compose logs --tail=10 redis
+    echo.
+    
     echo [Master Bot]
     docker-compose logs --tail=20 bot-master
     echo.
@@ -349,7 +261,7 @@ echo Mode: %MODE_NAME%
 echo.
 echo Services running:
 echo   - PostgreSQL (port 5432)
-echo   - Redis (port 6379)
+    - Redis (port 6379)
 
 if "%MODE%"=="production" (
     echo   - Master Bot (Telegram)
@@ -368,21 +280,20 @@ if "%MODE%"=="production" (
     echo Next steps:
     echo   1. Open Telegram and find your bots
     echo   2. Send /start to Master Bot
-    echo   3. Configure services in admin panel
+    echo   3. Test bookings
 )
 
 echo.
 echo Useful commands:
 echo   - View logs:     docker-compose %COMPOSE_FILE% logs -f
-echo   - Restart:       docker-compose %COMPOSE_FILE% restart
-echo   - Stop:          docker-compose %COMPOSE_FILE% down
-echo   - Status:        docker-compose %COMPOSE_FILE% ps
+    - Restart bot:   docker-compose %COMPOSE_FILE% restart bot-master
+    - Stop all:      docker-compose %COMPOSE_FILE% down
+    - Status:        docker-compose %COMPOSE_FILE% ps
 echo.
-echo   - PostgreSQL:    docker exec -it postgres-shared psql -U booking_admin -d postgres
-echo   - Redis:         docker exec -it booking-bot-redis-shared redis-cli
+echo   - PostgreSQL:    docker exec -it booking-postgres psql -U booking_user -d booking_saas
+echo   - Redis:         docker exec -it booking-redis redis-cli
 echo.
 echo For production deployment:
 echo   - Run: rebuild.bat production
-echo   - See: docs/DEPLOYMENT.md
 echo.
 pause
