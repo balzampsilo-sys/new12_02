@@ -54,6 +54,7 @@ services:
       - booking-network
 
   # ✅ MASTER BOT - управление подписками и клиентами
+  # 🔥 НОВОЕ: Монтирует Docker socket для автономного деплоя!
   bot-master:
     build:
       context: .
@@ -93,6 +94,8 @@ services:
       - booking-network
     volumes:
       - ./logs:/app/logs
+      # 🔥 КРИТИЧНО: Docker socket для автономного деплоя клиентских ботов
+      - /var/run/docker.sock:/var/run/docker.sock
     logging:
       driver: "json-file"
       options:
