@@ -44,3 +44,6 @@ requests==2.32.3
 
 # Payment Integration (YooKassa for Sales Bot)
 yookassa==3.5.0
+
+# Docker SDK (for autonomous bot deployment)
+docker==7.1.0
