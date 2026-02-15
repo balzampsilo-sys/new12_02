@@ -186,8 +186,11 @@ BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
 BROADCAST_DELAY = float(os.getenv("BROADCAST_DELAY", "0.05"))
 
 # === RATE LIMITING ===
-RATE_LIMIT_MESSAGE = float(os.getenv("RATE_LIMIT_MESSAGE", "0.5"))
-RATE_LIMIT_CALLBACK = float(os.getenv("RATE_LIMIT_CALLBACK", "0.3"))
+# ✅ FIXED (P0): Изменены defaults на production-safe значения
+# Старые значения (0.5s/0.3s) были слишком слабыми для защиты от флуда
+# Новые значения обеспечивают надежную защиту без ухудшения UX
+RATE_LIMIT_MESSAGE = float(os.getenv("RATE_LIMIT_MESSAGE", "2.0"))  # CHANGED: 0.5 → 2.0 seconds
+RATE_LIMIT_CALLBACK = float(os.getenv("RATE_LIMIT_CALLBACK", "1.0"))  # CHANGED: 0.3 → 1.0 seconds
 
 # === CALENDAR ===
 CALENDAR_MAX_MONTHS_AHEAD = int(os.getenv("CALENDAR_MAX_MONTHS_AHEAD", "3"))
@@ -280,3 +283,8 @@ if REDIS_ENABLED:
     )
 else:
     logger.warning("⚠️ Redis disabled - using MemoryStorage (not recommended for production)")
+
+logger.info(
+    f"✅ Rate Limiting: Messages={RATE_LIMIT_MESSAGE}s, Callbacks={RATE_LIMIT_CALLBACK}s " 
+    f"(Production-safe defaults)"
+)
