@@ -14,6 +14,9 @@ aiosqlite==0.20.0
 # Task Scheduling
 APScheduler==3.10.4
 
+# ✅ P1: SQLAlchemy для persistent jobstore
+SQLAlchemy==2.0.36
+
 # Configuration
 python-dotenv==1.0.1
 
