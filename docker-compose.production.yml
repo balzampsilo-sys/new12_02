@@ -1,0 +1,341 @@
+version: '3.8'
+
+# ✅ PRODUCTION DEPLOYMENT: Complete architecture with all critical services
+# 
+# Services:
+# 1. postgres - Shared PostgreSQL database (multi-tenant schemas)
+# 2. redis - Shared Redis with key prefix isolation
+# 3. bot-master - Master Bot (Telegram UI for admin)
+# 4. bot-master-api - REST API for Sales Bot integration ✅ NEW
+# 5. bot-sales - Sales Bot (YooKassa payments)
+# 6. sales-webhook - YooKassa webhook handler ✅ NEW
+# 7. deploy-worker - Background worker for client deployment ✅ NEW (HOST ONLY)
+
+services:
+  # ==================== INFRASTRUCTURE ====================
+  
+  postgres:
+    image: postgres:16-alpine
+    container_name: booking-postgres
+    environment:
+      POSTGRES_USER: booking_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SecurePass2026!}
+      POSTGRES_DB: booking_saas
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # ✅ NEW: Backup directory
+      - ./backups/postgres:/backups
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U booking_user -d booking_saas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - booking-network
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "max_connections=200"  # ✅ Increased for more bots
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_connections=on"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    container_name: booking-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1000
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - booking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ==================== MASTER BOT ====================
+  
+  # ✅ Master Bot - Telegram UI для управления клиентами
+  bot-master:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: booking-bot-master
+    command: python master_bot/master_bot.py
+    environment:
+      # Bot
+      MASTER_BOT_TOKEN: ${BOT_TOKEN_MASTER}
+      ADMIN_IDS: ${ADMIN_IDS_MASTER}
+      
+      # PostgreSQL
+      DB_TYPE: postgresql
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      PG_SCHEMA: master_bot
+      
+      # Redis
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_KEY_PREFIX: "master_bot:"
+      
+      # Docker API (ONLY for Docker handlers - not recommended for production)
+      # ⚠️ SECURITY: Uncomment only if you use Docker autonomous deploy
+      # DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+      
+      # Business Logic
+      TIMEZONE: ${TIMEZONE:-Europe/Moscow}
+      
+      # Sentry
+      SENTRY_ENABLED: ${SENTRY_ENABLED:-false}
+      SENTRY_DSN: ${SENTRY_DSN_MASTER:-}
+      SENTRY_ENVIRONMENT: production-master
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - booking-network
+    volumes:
+      - ./logs:/app/logs
+      # ⚠️ SECURITY WARNING: Docker socket commented out
+      # Uncomment ONLY if you need Docker autonomous deploy
+      # - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ✅ NEW: Master Bot REST API
+  bot-master-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: booking-bot-master-api
+    command: python master_bot/api_server.py
+    environment:
+      # API Configuration
+      MASTER_API_PORT: 8000
+      MASTER_API_TOKEN: ${MASTER_API_TOKEN:-change_me_in_production}  # ⚠️ SET IN .env!
+      
+      # PostgreSQL
+      DB_TYPE: postgresql
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      PG_SCHEMA: master_bot
+      
+      # Business Logic
+      TIMEZONE: ${TIMEZONE:-Europe/Moscow}
+      
+      # Sentry
+      SENTRY_ENABLED: ${SENTRY_ENABLED:-false}
+      SENTRY_DSN: ${SENTRY_DSN_MASTER:-}
+      SENTRY_ENVIRONMENT: production-master-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - booking-network
+    ports:
+      - "8000:8000"  # ✅ Exposed for Sales Bot
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==================== SALES BOT ====================
+  
+  # ✅ Sales Bot - Продажа подписок через YooKassa
+  bot-sales:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: booking-bot-sales
+    command: python sales_bot/sales_bot_yookassa.py
+    environment:
+      # Bot
+      SALES_BOT_TOKEN: ${BOT_TOKEN_SALES}
+      
+      # YooKassa
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY}
+      WEBHOOK_URL: ${WEBHOOK_URL:-https://yourdomain.com}
+      
+      # Integration
+      SUPPORT_USERNAME: ${SUPPORT_USERNAME:-YourSupport}
+      MASTER_BOT_API_URL: http://bot-master-api:8000  # ✅ NEW: Fixed URL
+      MASTER_API_TOKEN: ${MASTER_API_TOKEN:-change_me_in_production}
+      
+      # PostgreSQL
+      DB_TYPE: postgresql
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      PG_SCHEMA: sales_bot
+      
+      # Redis
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_KEY_PREFIX: "sales_bot:"
+      
+      # Business Logic
+      TIMEZONE: ${TIMEZONE:-Europe/Moscow}
+      
+      # Sentry
+      SENTRY_ENABLED: ${SENTRY_ENABLED:-false}
+      SENTRY_DSN: ${SENTRY_DSN_SALES:-}
+      SENTRY_ENVIRONMENT: production-sales
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bot-master-api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - booking-network
+    volumes:
+      - ./logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ✅ NEW: YooKassa Webhook Handler
+  sales-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: booking-sales-webhook
+    command: python sales_bot/yookassa_webhook.py
+    environment:
+      # Webhook Configuration
+      WEBHOOK_PORT: 8001
+      WEBHOOK_SECRET: ${YOOKASSA_WEBHOOK_SECRET:-change_me_in_production}  # ⚠️ SET IN .env!
+      
+      # YooKassa
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY}
+      
+      # Integration
+      MASTER_BOT_API_URL: http://bot-master-api:8000
+      MASTER_API_TOKEN: ${MASTER_API_TOKEN:-change_me_in_production}
+      SALES_BOT_TOKEN: ${BOT_TOKEN_SALES}  # Для отправки уведомлений
+      
+      # PostgreSQL
+      DB_TYPE: postgresql
+      DATABASE_URL: postgresql://booking_user:${POSTGRES_PASSWORD:-SecurePass2026!}@postgres:5432/booking_saas
+      PG_SCHEMA: sales_bot
+      
+      # Business Logic
+      TIMEZONE: ${TIMEZONE:-Europe/Moscow}
+      
+      # Sentry
+      SENTRY_ENABLED: ${SENTRY_ENABLED:-false}
+      SENTRY_DSN: ${SENTRY_DSN_SALES:-}
+      SENTRY_ENVIRONMENT: production-sales-webhook
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bot-master-api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - booking-network
+    ports:
+      - "8001:8001"  # ✅ Exposed for YooKassa webhooks
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ==================== NETWORKS & VOLUMES ====================
+
+networks:
+  booking-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ==================== NOTES ====================
+# 
+# ✅ WHAT'S FIXED:
+# 1. Master Bot API (port 8000) - Now Sales Bot can extend subscriptions
+# 2. Sales Webhook (port 8001) - Now YooKassa payments work automatically
+# 3. Deploy Worker - See automation/deploy_worker.py (RUN ON HOST!)
+# 
+# ⚠️ SECURITY:
+# - Docker socket NOT mounted (use Deploy Worker on host)
+# - API_TOKEN required for Master Bot API
+# - Webhook secret required for YooKassa
+# 
+# 📚 DOCUMENTATION:
+# - Master Bot API docs: http://localhost:8000/docs
+# - Setup guide: docs/PRODUCTION_SETUP.md
+# - Nginx config: docs/nginx.conf.example
+# 
+# 🚀 DEPLOYMENT:
+# docker-compose -f docker-compose.production.yml up -d
+# 
+# 🔍 MONITORING:
+# docker-compose -f docker-compose.production.yml logs -f
+# docker-compose -f docker-compose.production.yml ps
