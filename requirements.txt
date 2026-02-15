@@ -4,12 +4,9 @@
 # Bot Framework (latest stable)
 aiogram==3.21.0
 
-# Database - PostgreSQL
+# Database - PostgreSQL (multi-tenant via schemas)
 asyncpg==0.30.0
 psycopg2-binary==2.9.9
-
-# Database - SQLite (for migrations compatibility)
-aiosqlite==0.20.0
 
 # Task Scheduling
 APScheduler==3.10.4
@@ -21,7 +18,7 @@ python-dotenv==1.0.1
 python-dateutil==2.9.0
 pytz==2024.2
 
-# Redis (FSM Storage)
+# Redis (FSM Storage with key prefix isolation)
 redis==5.2.1
 
 # Error Monitoring

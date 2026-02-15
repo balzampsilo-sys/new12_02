@@ -1,4 +1,7 @@
-"""Конфигурация"""
+"""Конфигурация
+
+✅ FIXED: Удалены DATABASE_PATH и DB_TYPE (только PostgreSQL)
+"""
 
 import logging
 import os
@@ -22,9 +25,9 @@ logger = logging.getLogger(__name__)
 # === VALIDATION HELPERS ===
 
 def validate_bot_token(token: str) -> bool:
-    """Validate Telegram bot token format
+    """Проверка формата Telegram bot token
     
-    Expected format: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+    Ожидаемый формат: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
     
     Args:
         token: Bot token string
@@ -37,33 +40,33 @@ def validate_bot_token(token: str) -> bool:
     
     parts = token.split(":")
     if len(parts) != 2:
-        logger.error("BOT_TOKEN must have format: 123456789:ABCdef...")
+        logger.error("Формат BOT_TOKEN: 123456789:ABCdef...")
         return False
     
     bot_id, token_part = parts
     
     if not bot_id.isdigit():
-        logger.error("BOT_TOKEN bot ID must be numeric")
+        logger.error("BOT_TOKEN bot ID должен быть числом")
         return False
     
     if len(token_part) < 30:
-        logger.error("BOT_TOKEN secret part too short (min 30 chars)")
+        logger.error("BOT_TOKEN secret часть слишком короткая (min 30 chars)")
         return False
     
     return True
 
 
 def parse_admin_ids(ids_str: str) -> List[int]:
-    """Parse ADMIN_IDS with validation and error handling
+    """Парсинг ADMIN_IDS с валидацией
     
     Args:
-        ids_str: Comma-separated string of user IDs
+        ids_str: Строка ID через запятую
         
     Returns:
-        List of valid admin IDs (positive integers)
+        Список валидных admin IDs (положительные числа)
         
     Raises:
-        SystemExit if no valid IDs found
+        SystemExit если нет валидных IDs
     """
     admin_ids = []
     
@@ -75,32 +78,32 @@ def parse_admin_ids(ids_str: str) -> List[int]:
         try:
             user_id = int(item)
             if user_id <= 0:
-                logger.warning(f"⚠️ Invalid admin ID (must be > 0): {item}")
+                logger.warning(f"⚠️ Неверный admin ID (должен быть > 0): {item}")
                 continue
             admin_ids.append(user_id)
         except ValueError:
-            logger.warning(f"⚠️ Invalid admin ID format (not a number): {item}")
+            logger.warning(f"⚠️ Неверный формат admin ID (не число): {item}")
             continue
     
     if not admin_ids:
-        logger.error("❌ No valid admin IDs found in ADMIN_IDS")
-        sys.exit("❌ ADMIN_IDS must contain at least one valid positive integer")
+        logger.error("❌ Нет валидных admin IDs в ADMIN_IDS")
+        sys.exit("❌ ADMIN_IDS должен содержать хотя бы одно положительное число")
     
-    logger.info(f"✅ Loaded {len(admin_ids)} admin ID(s): {admin_ids}")
+    logger.info(f"✅ Загружено {len(admin_ids)} admin ID(s): {admin_ids}")
     return admin_ids
 
 
 # === BOT ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    sys.exit("❌ BOT_TOKEN not found in .env")
+    sys.exit("❌ BOT_TOKEN не найден в .env")
 
 if not validate_bot_token(BOT_TOKEN):
-    sys.exit("❌ BOT_TOKEN has invalid format. Expected: 123456789:ABCdef...")
+    sys.exit("❌ BOT_TOKEN имеет неверный формат. Ожидается: 123456789:ABCdef...")
 
 # === ADMIN ===
 ADMIN_IDS_STR = os.getenv("ADMIN_IDS", "")
-ADMIN_IDS = parse_admin_ids(ADMIN_IDS_STR)  # ✅ Safe parsing with validation
+ADMIN_IDS = parse_admin_ids(ADMIN_IDS_STR)  # ✅ Безопасный парсинг с валидацией
 
 MAX_ADMIN_ADDITIONS_PER_HOUR = int(os.getenv("MAX_ADMIN_ADDITIONS_PER_HOUR", "3"))
 
@@ -128,23 +131,18 @@ WORK_HOURS_START = int(os.getenv("WORK_HOURS_START", "9"))
 WORK_HOURS_END = int(os.getenv("WORK_HOURS_END", "18"))
 
 # === DATABASE ===
-# ✅ CHANGED: PostgreSQL by default (recommended for production)
-DB_TYPE = os.getenv("DB_TYPE", "postgresql").lower()  # "postgresql" (default) or "sqlite" (legacy)
+# ✅ FIXED: Только PostgreSQL (SQLite удален)
 
-# SQLite configuration (legacy fallback)
-DATABASE_PATH = os.getenv("DATABASE_PATH", "data/bookings.db")
-
-# ✅ PostgreSQL configuration (RECOMMENDED)
+# PostgreSQL конфигурация
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://booking_user:SecurePass2026!@postgres:5432/booking_saas"
 )
 
-# ✅ NEW: PostgreSQL Schema for multi-tenant isolation
-# Each client gets their own schema (e.g., client_001, client_002)
+# ✅ Multi-tenant isolation: Каждый клиент получает свою schema
 PG_SCHEMA = os.getenv("PG_SCHEMA", "public")
 
-# ✅ Connection pool settings (optimized for multiple clients)
+# ✅ Connection pool настройки (оптимизировано для множества клиентов)
 DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
 DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
 DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "30.0"))
@@ -160,13 +158,13 @@ REDIS_ENABLED = os.getenv("REDIS_ENABLED", "True").lower() in ("true", "1", "yes
 REDIS_HOST = os.getenv("REDIS_HOST", "redis-shared")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
-# ✅ CHANGED: All clients use DB 0 (unlimited clients via key prefix)
+# ✅ Все клиенты используют DB 0 (безлимитное количество клиентов через key prefix)
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 
-# ✅ NEW: Client isolation via key prefix
-# Instead of using different DB numbers (0-15 limit),
-# we use unique prefixes for unlimited scalability
+# ✅ Изоляция клиентов через key prefix
+# Вместо использования разных DB (0-15 лимит),
+# используем уникальные префиксы для неограниченной масштабируемости
 CLIENT_ID = os.getenv("CLIENT_ID", "default")
 REDIS_KEY_PREFIX = os.getenv("REDIS_KEY_PREFIX", f"{CLIENT_ID}:")
 
@@ -261,15 +259,11 @@ ROLE_PERMISSIONS = {
 }
 
 # === LOGGING ===
-if DB_TYPE == "postgresql":
-    logger.info(
-        f"✅ Database: PostgreSQL\n"
-        f"   • Pool: {DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE}\n"
-        f"   • Schema: {PG_SCHEMA} (multi-tenant isolation)"
-    )
-else:
-    logger.warning(f"⚠️ Database: SQLite (legacy) - {DATABASE_PATH}")
-    logger.warning("⚠️ Consider using PostgreSQL for production (better scalability)")
+logger.info(
+    f"✅ Database: PostgreSQL\n"
+    f"   • Pool: {DB_POOL_MIN_SIZE}-{DB_POOL_MAX_SIZE}\n"
+    f"   • Schema: {PG_SCHEMA} (multi-tenant isolation)"
+)
 
 if REDIS_ENABLED:
     logger.info(

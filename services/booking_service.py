@@ -1,16 +1,18 @@
-"""Сервис управления бронированием"""
+"""Сервис управления бронированием
+
+✅ FIXED: Удален legacy SQLite код, используется db_adapter
+✅ FIXED: Multi-tenant изоляция через PostgreSQL schemas
+"""
 
 import asyncio
 import logging
-import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
-import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import asyncpg.exceptions
 
 from config import (
-    DATABASE_PATH,
     FEEDBACK_HOURS_AFTER,
     MAX_BOOKINGS_PER_USER,
     REMINDER_HOURS_BEFORE_1H,
@@ -18,16 +20,20 @@ from config import (
     REMINDER_HOURS_BEFORE_24H,
     TIMEZONE,
 )
+from database.db_adapter import db_adapter
 from database.queries import Database
 from database.repositories.booking_history_repository import BookingHistoryRepository
 from utils.helpers import now_local
 
-# ✅ P0: Константа для transaction timeout
+# Transaction timeout
 DB_TRANSACTION_TIMEOUT = 30.0  # секунд
 
 
 class BookingService:
-    """Сервис для работы с бронированием"""
+    """Сервис для работы с бронированием
+    
+    ✅ FIXED: Использует db_adapter для PostgreSQL multi-tenant support
+    """
 
     def __init__(self, scheduler: AsyncIOScheduler, bot):
         self.scheduler = scheduler
@@ -66,25 +72,18 @@ class BookingService:
     ) -> Tuple[bool, str]:
         """Создание записи с атомарной проверкой и поддержкой услуг
         
-        ✅ P0 FIX: Добавлен transaction timeout и усилена защита от race conditions
+        ✅ FIXED: Использует db_adapter вместо aiosqlite
+        ✅ FIXED: PostgreSQL placeholders ($1, $2) вместо SQLite (?)
 
         Args:
             date_str: Дата в формате YYYY-MM-DD
             time_str: Время в формате HH:MM
             user_id: ID пользователя
             username: Имя пользователя
-            service_id: ID услуги (опционально, для обратной совместимости)
+            service_id: ID услуги (опционально)
 
         Returns:
             Tuple[bool, str]: (success, error_code)
-            error_code может быть:
-                - 'success' - успешно
-                - 'no_services' - нет доступных услуг
-                - 'service_not_available' - выбранная услуга недоступна
-                - 'limit_exceeded' - превышен лимит записей
-                - 'slot_taken' - слот занят
-                - 'timeout_error' - timeout транзакции
-                - 'unknown_error' - неизвестная ошибка
         """
         # Если service_id не передан, используем дефолтную услугу
         if service_id is None:
@@ -109,23 +108,18 @@ class BookingService:
 
             duration = service.duration_minutes
 
-        # ✅ P0 FIX: Добавлен timeout для транзакции
+        # ✅ FIXED: Используем db_adapter с timeout
         try:
             async with asyncio.timeout(DB_TRANSACTION_TIMEOUT):
-                async with aiosqlite.connect(DATABASE_PATH) as db:
-                    # ✅ КРИТИЧНО: BEGIN IMMEDIATE блокирует БД от других записей
-                    await db.execute("BEGIN IMMEDIATE")
-
-                    try:
+                async with db_adapter.acquire() as conn:
+                    async with conn.transaction():
                         # Проверяем лимит пользователя
-                        async with db.execute(
-                            "SELECT COUNT(*) FROM bookings WHERE user_id=? AND date >= date('now')",
-                            (user_id,),
-                        ) as cursor:
-                            user_count = (await cursor.fetchone())[0]
+                        user_count = await conn.fetchval(
+                            "SELECT COUNT(*) FROM bookings WHERE user_id=$1 AND date >= CURRENT_DATE",
+                            user_id,
+                        )
 
                         if user_count >= MAX_BOOKINGS_PER_USER:
-                            await db.rollback()
                             logging.warning(
                                 f"User {user_id} exceeded booking limit: {user_count}/{MAX_BOOKINGS_PER_USER}"
                             )
@@ -133,33 +127,28 @@ class BookingService:
 
                         # Проверяем пересечения с учетом длительности
                         is_available = await self._check_slot_availability_in_transaction(
-                            db, date_str, time_str, duration
+                            conn, date_str, time_str, duration
                         )
 
                         if not is_available:
-                            await db.rollback()
                             logging.info(f"Slot {date_str} {time_str} not available (race condition prevented)")
                             return False, "slot_taken"
 
-                        # Создаем запись (service_id гарантированно не NULL)
-                        cursor = await db.execute(
+                        # Создаем запись
+                        booking_id = await conn.fetchval(
                             """INSERT INTO bookings (date, time, user_id, username, service_id, duration_minutes, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                            (
-                                date_str,
-                                time_str,
-                                user_id,
-                                username,
-                                service_id,
-                                duration,
-                                now_local().isoformat(),
-                            ),
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            RETURNING id""",
+                            date_str,
+                            time_str,
+                            user_id,
+                            username,
+                            service_id,
+                            duration,
+                            now_local(),
                         )
-                        booking_id = cursor.lastrowid
 
-                        await db.commit()
-
-                        # ✅ P0: Записываем в историю
+                        # ✅ Записываем в историю (вне транзакции, чтобы не блокировать)
                         await BookingHistoryRepository.record_create(
                             booking_id=booking_id,
                             user_id=user_id,
@@ -168,42 +157,41 @@ class BookingService:
                             service_id=service_id,
                         )
 
-                        # Планируем напоминание (вне транзакции)
-                        await self._schedule_reminder(booking_id, date_str, time_str, user_id)
-                        await Database.log_event(
-                            user_id, "booking_created", f"{date_str} {time_str} service_id={service_id}"
-                        )
-
                         logging.info(
                             f"Booking created: {booking_id} for user {user_id}, "
                             f"service {service_id}, duration {duration}min"
                         )
-                        return True, "success"
 
-                    except sqlite3.IntegrityError as e:
-                        await db.rollback()
-                        logging.warning(f"Integrity error creating booking: {e}")
-                        return False, "slot_taken"
-                    except Exception as e:
-                        await db.rollback()
-                        logging.error(f"Error in create_booking transaction: {e}", exc_info=True)
-                        return False, "unknown_error"
-                        
+                # Планируем напоминание (вне транзакции)
+                await self._schedule_reminder(booking_id, date_str, time_str, user_id)
+                await Database.log_event(
+                    user_id, "booking_created", f"{date_str} {time_str} service_id={service_id}"
+                )
+
+                return True, "success"
+
+        except asyncpg.exceptions.UniqueViolationError:
+            logging.warning(f"Unique constraint violation creating booking: {date_str} {time_str}")
+            return False, "slot_taken"
         except asyncio.TimeoutError:
-            # ✅ P0 FIX: Обработка timeout
             logging.error(
                 f"Transaction timeout ({DB_TRANSACTION_TIMEOUT}s) creating booking "
                 f"{date_str} {time_str} for user {user_id}"
             )
             return False, "timeout_error"
+        except Exception as e:
+            logging.error(f"Error in create_booking: {e}", exc_info=True)
+            return False, "unknown_error"
 
     async def _check_slot_availability_in_transaction(
-        self, db: aiosqlite.Connection, date_str: str, time_str: str, duration_minutes: int
+        self, conn, date_str: str, time_str: str, duration_minutes: int
     ) -> bool:
         """Проверка доступности с учетом пересечений (внутри транзакции)
+        
+        ✅ FIXED: PostgreSQL syntax
 
         Args:
-            db: Активное соединение с БД (внутри транзакции)
+            conn: Database connection (внутри транзакции)
             date_str: Дата в формате YYYY-MM-DD
             time_str: Время в формате HH:MM
             duration_minutes: Длительность в минутах
@@ -216,19 +204,24 @@ class BookingService:
         end_time = start_time + timedelta(minutes=duration_minutes)
 
         # Получаем все записи на этот день
-        async with db.execute(
-            "SELECT time, duration_minutes FROM bookings WHERE date=?", (date_str,)
-        ) as cursor:
-            existing = await cursor.fetchall()
+        existing = await conn.fetch(
+            "SELECT time, duration_minutes FROM bookings WHERE date=$1",
+            date_str,
+        )
 
         # Проверяем заблокированные слоты
-        async with db.execute("SELECT time FROM blocked_slots WHERE date=?", (date_str,)) as cursor:
-            blocked = await cursor.fetchall()
+        blocked = await conn.fetch(
+            "SELECT time FROM blocked_slots WHERE date=$1",
+            date_str,
+        )
 
         # Проверяем пересечения с существующими записями
-        for booking_time_str, booking_duration in existing:
+        for row in existing:
+            booking_time_str = row["time"]
+            booking_duration = row["duration_minutes"] or 60
+            
             booking_start = datetime.strptime(booking_time_str, "%H:%M")
-            booking_end = booking_start + timedelta(minutes=booking_duration or 60)
+            booking_end = booking_start + timedelta(minutes=booking_duration)
 
             # Интервалы пересекаются если:
             # start_time < booking_end AND end_time > booking_start
@@ -240,8 +233,8 @@ class BookingService:
                 return False
 
         # Проверяем заблокированные слоты
-        for (blocked_time,) in blocked:
-            if blocked_time == time_str:
+        for row in blocked:
+            if row["time"] == time_str:
                 logging.debug(f"Slot {time_str} is blocked")
                 return False
 
@@ -259,7 +252,7 @@ class BookingService:
     ) -> bool:
         """Перенос записи в одной транзакции
         
-        ✅ P0 FIX: Добавлен transaction timeout
+        ✅ FIXED: Используем db_adapter
 
         Args:
             booking_id: ID записи для переноса
@@ -273,49 +266,45 @@ class BookingService:
         Returns:
             True если перенос успешен, False иначе
         """
-        # ✅ P0 FIX: Добавлен timeout
         try:
             async with asyncio.timeout(DB_TRANSACTION_TIMEOUT):
-                async with aiosqlite.connect(DATABASE_PATH) as db:
-                    await db.execute("BEGIN IMMEDIATE")
-
-                    try:
+                async with db_adapter.acquire() as conn:
+                    async with conn.transaction():
                         # 1. Проверяем что старая запись существует
-                        async with db.execute(
-                            "SELECT id, duration_minutes, service_id FROM bookings WHERE id=? AND user_id=?",
-                            (booking_id, user_id),
-                        ) as cursor:
-                            old_booking = await cursor.fetchone()
+                        old_booking = await conn.fetchrow(
+                            "SELECT id, duration_minutes, service_id FROM bookings WHERE id=$1 AND user_id=$2",
+                            booking_id,
+                            user_id,
+                        )
 
                         if not old_booking:
-                            await db.rollback()
                             logging.warning(f"Booking {booking_id} not found for user {user_id}")
                             return False
 
-                        duration = old_booking[1] or 60
-                        old_service_id = old_booking[2]
+                        duration = old_booking["duration_minutes"] or 60
+                        old_service_id = old_booking["service_id"]
 
                         # 2. Проверяем что новый слот свободен
                         is_available = await self._check_slot_availability_in_transaction(
-                            db, new_date_str, new_time_str, duration
+                            conn, new_date_str, new_time_str, duration
                         )
 
                         if not is_available:
-                            await db.rollback()
                             logging.info(f"Slot {new_date_str} {new_time_str} not available")
                             return False
 
-                        # 3. Обновляем запись (вместо удаления и создания)
-                        await db.execute(
+                        # 3. Обновляем запись
+                        await conn.execute(
                             """UPDATE bookings
-                            SET date=?, time=?, created_at=?
-                            WHERE id=?""",
-                            (new_date_str, new_time_str, now_local().isoformat(), booking_id),
+                            SET date=$1, time=$2, created_at=$3
+                            WHERE id=$4""",
+                            new_date_str,
+                            new_time_str,
+                            now_local(),
+                            booking_id,
                         )
 
-                        await db.commit()
-
-                        # ✅ P0: Записываем в историю
+                        # ✅ Записываем в историю
                         await BookingHistoryRepository.record_reschedule(
                             booking_id=booking_id,
                             user_id=user_id,
@@ -325,42 +314,34 @@ class BookingService:
                             new_date=new_date_str,
                             new_time=new_time_str,
                             old_service_id=old_service_id,
-                            new_service_id=old_service_id,  # Услуга не меняется при переносе
+                            new_service_id=old_service_id,
                         )
 
-                        # 4. Перепланируем напоминания (вне транзакции)
-                        self._remove_job_safe(f"reminder_{booking_id}")
-                        self._remove_job_safe(f"feedback_{booking_id}")
+                # Перепланируем напоминания (вне транзакции)
+                self._remove_job_safe(f"reminder_{booking_id}")
+                self._remove_job_safe(f"feedback_{booking_id}")
+                await self._schedule_reminder(booking_id, new_date_str, new_time_str, user_id)
 
-                        await self._schedule_reminder(booking_id, new_date_str, new_time_str, user_id)
+                await Database.log_event(
+                    user_id,
+                    "booking_rescheduled",
+                    f"{old_date_str} {old_time_str} -> {new_date_str} {new_time_str}",
+                )
 
-                        await Database.log_event(
-                            user_id,
-                            "booking_rescheduled",
-                            f"{old_date_str} {old_time_str} -> {new_date_str} {new_time_str}",
-                        )
+                logging.info(f"Booking {booking_id} rescheduled successfully")
+                return True
 
-                        logging.info(f"Booking {booking_id} rescheduled successfully")
-                        return True
-
-                    except Exception as e:
-                        await db.rollback()
-                        logging.error(f"Error in reschedule_booking transaction: {e}", exc_info=True)
-                        return False
-                        
         except asyncio.TimeoutError:
-            # ✅ P0 FIX: Обработка timeout
             logging.error(
                 f"Transaction timeout ({DB_TRANSACTION_TIMEOUT}s) rescheduling booking {booking_id}"
             )
             return False
+        except Exception as e:
+            logging.error(f"Error in reschedule_booking: {e}", exc_info=True)
+            return False
 
     def _remove_job_safe(self, job_id: str) -> None:
-        """Безопасное удаление задачи из scheduler
-
-        Args:
-            job_id: Идентификатор задачи
-        """
+        """Безопасное удаление задачи из scheduler"""
         try:
             self.scheduler.remove_job(job_id)
         except Exception:
@@ -369,21 +350,14 @@ class BookingService:
     async def _schedule_reminder(
         self, booking_id: int, date_str: str, time_str: str, user_id: int
     ) -> None:
-        """Планирование напоминаний
-
-        Args:
-            booking_id: ID записи
-            date_str: Дата записи
-            time_str: Время записи
-            user_id: ID пользователя
-        """
+        """Планирование напоминаний"""
         try:
             booking_datetime = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
             booking_datetime = TIMEZONE.localize(booking_datetime)
             now = now_local()
             time_until_booking = booking_datetime - now
 
-            # Напоминание (используем константы)
+            # Напоминание
             if time_until_booking > timedelta(hours=REMINDER_HOURS_BEFORE_24H):
                 reminder_time = booking_datetime - timedelta(hours=REMINDER_HOURS_BEFORE_24H)
                 self.scheduler.add_job(
@@ -415,7 +389,7 @@ class BookingService:
                     replace_existing=True,
                 )
 
-            # Запрос обратной связи (используем константы)
+            # Запрос обратной связи
             feedback_time = booking_datetime + timedelta(hours=FEEDBACK_HOURS_AFTER)
             self.scheduler.add_job(
                 self._send_feedback_request,
@@ -432,32 +406,30 @@ class BookingService:
         self, date_str: str, time_str: str, user_id: int, admin_id: Optional[int] = None
     ) -> Tuple[bool, int]:
         """Отмена записи
-
-        Args:
-            date_str: Дата записи
-            time_str: Время записи
-            user_id: ID пользователя
-            admin_id: ID админа (если отмена админом)
-
-        Returns:
-            Tuple[success, booking_id]
+        
+        ✅ FIXED: Использует db_adapter
         """
         try:
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                async with db.execute(
-                    "SELECT id, service_id FROM bookings WHERE date=? AND time=? AND user_id=?",
-                    (date_str, time_str, user_id),
-                ) as cursor:
-                    result = await cursor.fetchone()
-                    if not result:
-                        return False, 0
+            async with db_adapter.acquire() as conn:
+                result = await conn.fetchrow(
+                    "SELECT id, service_id FROM bookings WHERE date=$1 AND time=$2 AND user_id=$3",
+                    date_str,
+                    time_str,
+                    user_id,
+                )
+                
+                if not result:
+                    return False, 0
 
-                    booking_id, service_id = result
+                booking_id = result["id"]
+                service_id = result["service_id"]
 
-                await db.execute("DELETE FROM bookings WHERE id=?", (booking_id,))
-                await db.commit()
+                await conn.execute(
+                    "DELETE FROM bookings WHERE id=$1",
+                    booking_id,
+                )
 
-            # ✅ P0: Записываем в историю
+            # Записываем в историю
             changed_by = admin_id if admin_id else user_id
             changed_by_type = "admin" if admin_id else "user"
 
@@ -485,18 +457,16 @@ class BookingService:
             return False, 0
 
     async def restore_reminders(self, batch_size: int = 50) -> None:
-        """Восстановить напоминания после рестарта с батчингом
-
-        Args:
-            batch_size: Размер батча для обработки (по умолчанию 50)
+        """Восстановить напоминания после рестарта
+        
+        ✅ FIXED: Использует db_adapter
         """
         try:
             now = now_local()
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                async with db.execute(
-                    "SELECT id, date, time, user_id FROM bookings ORDER BY date, time"
-                ) as cursor:
-                    all_bookings = await cursor.fetchall()
+            
+            all_bookings = await db_adapter.fetch(
+                "SELECT id, date, time, user_id FROM bookings ORDER BY date, time"
+            )
 
             total_bookings = len(all_bookings)
             restored_count = 0
@@ -508,14 +478,19 @@ class BookingService:
             for i in range(0, total_bookings, batch_size):
                 batch = all_bookings[i : i + batch_size]
 
-                for booking_id, date_str, time_str, user_id in batch:
+                for row in batch:
                     try:
+                        booking_id = row["id"]
+                        date_str = row["date"]
+                        time_str = row["time"]
+                        user_id = row["user_id"]
+                        
                         booking_datetime = datetime.strptime(
                             f"{date_str} {time_str}", "%Y-%m-%d %H:%M"
                         )
                         booking_datetime = TIMEZONE.localize(booking_datetime)
 
-                        # Восстановить напоминание (используем константы)
+                        # Восстановить напоминание
                         reminder_time = booking_datetime - timedelta(
                             hours=REMINDER_HOURS_BEFORE_24H
                         )
@@ -549,7 +524,7 @@ class BookingService:
                     finally:
                         processed_count += 1
 
-                # Логируем прогресс после каждого батча
+                # Логируем прогресс
                 logging.info(
                     f"Reminder restoration progress: {processed_count}/{total_bookings} processed, "
                     f"{restored_count} restored"
@@ -563,13 +538,7 @@ class BookingService:
             logging.error(f"Error restoring reminders: {e}", exc_info=True)
 
     async def _send_reminder(self, user_id: int, date_str: str, time_str: str) -> None:
-        """Отправка напоминания
-
-        Args:
-            user_id: ID пользователя
-            date_str: Дата записи
-            time_str: Время записи
-        """
+        """Отправка напоминания"""
         try:
             from config import DAY_NAMES, SERVICE_LOCATION
 
@@ -591,14 +560,7 @@ class BookingService:
     async def _send_feedback_request(
         self, user_id: int, booking_id: int, date_str: str, time_str: str
     ) -> None:
-        """Запрос обратной связи
-
-        Args:
-            user_id: ID пользователя
-            booking_id: ID записи
-            date_str: Дата записи
-            time_str: Время записи
-        """
+        """Запрос обратной связи"""
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
         feedback_kb = InlineKeyboardMarkup(
